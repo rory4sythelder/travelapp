@@ -1,0 +1,15 @@
+html,body,#map { height:100%; margin:0; padding:0; }
+#map { position: absolute; left:320px; right:0; top:0; bottom:0; }
+#sidebar {
+  position: absolute;
+  left:0; top:0; bottom:0;
+  width:320px;
+  padding:12px;
+  box-sizing:border-box;
+  background:#fff;
+  border-right:1px solid #ddd;
+  overflow:auto;
+  font-family: Arial, sans-serif;
+}
+button { padding:6px 8px; margin-right:6px; cursor:pointer; }
+input, select { padding:6px; }
