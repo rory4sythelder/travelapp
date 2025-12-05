@@ -23,12 +23,49 @@ function updateInfo(str) {
   if(infoEl) infoEl.textContent = str;
 }
 
-// ----- Load countiesGeo data (customize as needed) -----
 async function loadCountiesGeo(url) {
   try {
     const resp = await fetch(url);
     countiesGeo = await resp.json();
     updateInfo('Counties data loaded.');
+
+    // Remove previous source/layer if they exist (for reloading)
+    if (map.getSource('counties')) {
+      if (map.getLayer('counties-fill')) map.removeLayer('counties-fill');
+      if (map.getLayer('counties-outline')) map.removeLayer('counties-outline');
+      map.removeSource('counties');
+    }
+
+    // Add counties as a source
+    map.addSource('counties', {
+      type: 'geojson',
+      data: countiesGeo
+    });
+
+    // Add transparent fill layer
+    map.addLayer({
+      id: 'counties-fill',
+      type: 'fill',
+      source: 'counties',
+      layout: {},
+      paint: {
+        'fill-color': '#3388ff',
+        'fill-opacity': 0.15
+      }
+    });
+
+    // Add outline layer
+    map.addLayer({
+      id: 'counties-outline',
+      type: 'line',
+      source: 'counties',
+      layout: {},
+      paint: {
+        'line-color': '#2266bb',
+        'line-width': 1
+      }
+    });
+
   } catch (err) {
     updateInfo('Failed to load counties data.');
     console.error(err);
@@ -96,3 +133,4 @@ document.getElementById('countBtn').addEventListener('click', async () => {
   const arr = Array.from(found);
   updateInfo(`Visited ${arr.length} county(ies): ${arr.slice(0, 10).join(', ')}${arr.length > 10 ? ' ...' : ''}`);
 });
+
