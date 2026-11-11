@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>County Tracker Map</title>
+  <title>County Travel Tracker</title>
   
   <!-- Mapbox and Turf.js loaded directly from the web -->
   <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script>
@@ -45,7 +45,7 @@
 <body>
 
   <div id="sidebar">
-    <h3>Add Destination</h3>
+    <h3>County Travel Tracker</h3>
     <div class="autocomplete-container">
       <input type="text" id="addressInput" placeholder="Search address or click on map" oninput="fetchSuggestions()">
       <div id="suggestions"></div>
@@ -54,7 +54,7 @@
     <!-- Active Waypoints UI -->
     <div id="waypointContainer" style="display: none; margin-top: 15px;">
       <strong>Selected Stops:</strong>
-      <ul id="waypointList" style="list-style-type: decimal; padding-left: 20px; font-size: 0.9em; margin-top: 5px; margin-bottom: 0;"></ul>
+      <ul id="waypointList" style="list-style-type: disc; padding-left: 20px; font-size: 0.9em; margin-top: 5px; margin-bottom: 0;"></ul>
     </div>
 
     <div id="currentTrip" style="display: none; margin-top: 20px;">
@@ -108,7 +108,24 @@
       ]
     });
 
+    // Add zoom and rotation controls to the map.
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
     map.on('load', () => {
+      // 1. Highlighted Counties Layer (added first so it renders beneath the route line)
+      map.addSource('highlighted-counties', { type: 'geojson', data: turf.featureCollection([]) });
+      map.addLayer({
+        id: 'highlighted-counties-layer',
+        type: 'fill',
+        source: 'highlighted-counties',
+        paint: {
+          'fill-color': 'lightpink',
+          'fill-opacity': 0.6,
+          'fill-outline-color': '#ffb6c1'
+        }
+      });
+
+      // 2. Route Line Layer
       map.addSource('route', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'route-layer',
@@ -119,7 +136,10 @@
       
       fetch('counties.geojson')
         .then(res => res.json())
-        .then(data => { countyGeoJSON = data; })
+        .then(data => { 
+          countyGeoJSON = data; 
+          updateHighlights(); // Highlight previously saved trips on load
+        })
         .catch(err => console.error("Make sure counties.geojson is uploaded!", err));
         
       renderHistory();
@@ -252,6 +272,36 @@
       }
     }
 
+    // Highlight active counties on the map
+    function updateHighlights() {
+      if (!map.getSource('highlighted-counties') || !countyGeoJSON) return;
+
+      const activeGEOIDs = new Set();
+      tripHistory.forEach(trip => {
+        if (trip.visible !== false) { // Default to true if undefined
+          trip.counties.forEach(c => activeGEOIDs.add(c.geoid));
+        }
+      });
+
+      const highlightedFeatures = countyGeoJSON.features.filter(feature => {
+        const geoid = feature.properties.GEOID || feature.properties.STATEFP + feature.properties.COUNTYFP;
+        return activeGEOIDs.has(geoid);
+      });
+
+      map.getSource('highlighted-counties').setData(turf.featureCollection(highlightedFeatures));
+    }
+
+    // Toggle a specific trip's map highlights
+    function toggleTripVisibility(event, id) {
+      event.stopPropagation(); // Prevent the trip details from opening when checking the box
+      const trip = tripHistory.find(t => t.id === id);
+      if (trip) {
+        trip.visible = !(trip.visible !== false);
+        localStorage.setItem('mapTrips', JSON.stringify(tripHistory));
+        updateHighlights();
+      }
+    }
+
     // 4. Save and Render Trip History
     function saveTrip() {
       const name = document.getElementById('tripName').value;
@@ -261,7 +311,8 @@
         id: Date.now(),
         name: name,
         counties: visitedCounties,
-        date: new Date().toLocaleDateString()
+        date: new Date().toLocaleDateString(),
+        visible: true // Default to showing on map
       };
 
       tripHistory.unshift(newTrip);
@@ -283,6 +334,7 @@
       markers = [];
 
       renderHistory();
+      updateHighlights(); // Render the newly saved counties immediately
     }
 
     function toggleDetails(id) {
@@ -299,10 +351,14 @@
       list.innerHTML = '';
       tripHistory.forEach(trip => {
         const countyNames = trip.counties.map(c => c.name).join(', ');
+        const isChecked = trip.visible !== false ? 'checked' : '';
         
         list.innerHTML += `
           <div class="trip-item" onclick="toggleDetails(${trip.id})">
-            <strong>${trip.name}</strong><br>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <strong>${trip.name}</strong>
+              <input type="checkbox" ${isChecked} onclick="toggleTripVisibility(event, ${trip.id})">
+            </div>
             <small>${trip.date} • ${trip.counties.length} counties</small>
             <div id="details-${trip.id}" class="trip-details">
               <strong>Counties Visited:</strong><br>
