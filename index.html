@@ -93,8 +93,15 @@
     <!-- Current Trip Panel (always visible) -->
     <div id="currentTrip" style="margin-top: 20px; border: 1px solid #ddd; padding: 15px; background: #fff; border-radius: 5px;">
       <h3 style="margin-top: 0;">Current Trip</h3>
-      <p>Counties Visited: <span id="countyCount">0</span></p>
-      <input type="text" id="tripName" placeholder="Name this trip">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span>Counties Visited: <span id="countyCount">0</span></span>
+        <button class="action-btn toggle-btn" id="currentTripToggle" onclick="toggleCurrentTripDetails()" style="display: none;">Show</button>
+      </div>
+      <div id="currentTripDetails" class="trip-details" style="margin-top: 5px;">
+        <strong>Counties Visited:</strong><br>
+        <div id="currentCountyListText"></div>
+      </div>
+      <input type="text" id="tripName" placeholder="Name this trip" style="margin-top: 10px;">
       <button class="save-btn" onclick="saveTrip()">Save Trip</button>
     </div>
 
@@ -132,19 +139,20 @@
     let tripHistory = JSON.parse(localStorage.getItem('mapTrips')) || [];
     let countyGeoJSON = null;
     let markers = [];
+    let currentTripDetailsVisible = false;
 
-    // Distinct discrete color palette for intervals 1 through 10+
+    // High contrast, fast-ramping discrete color palette for 1 through 10+
     const visitColors = [
-      '#ffb6c1', // 1: Light Pink
-      '#ff9fb1', // 2
-      '#ff89a2', // 3
-      '#ff7291', // 4
-      '#ff5b81', // 5
-      '#ff4571', // 6
-      '#f02e5e', // 7
-      '#d61a4d', // 8
-      '#bd093d', // 9
-      '#9e002c'  // 10+: Dark Burgundy Pink
+      '#ffc0cb', // 1: Soft Pink
+      '#ff80a0', // 2: Medium Pink
+      '#ff3366', // 3: Bright Rose Pink
+      '#e60039', // 4: Vibrant Red-Pink
+      '#cc0000', // 5: Strong Red
+      '#990000', // 6: Deep Red
+      '#660066', // 7: Dark Purple-Red
+      '#4d004d', // 8: Deep Plum
+      '#330033', // 9: Very Dark Purple
+      '#1a001a'  // 10+: Near Black / Deepest Eggplant
     ];
 
     const stateFIPS = {
@@ -211,7 +219,7 @@
             visitColors[9] // default for 10+
           ],
           'fill-opacity': 0.75,
-          'fill-outline-color': '#9e002c'
+          'fill-outline-color': '#1a001a'
         }
       });
 
@@ -392,6 +400,27 @@
       }
     }
 
+    // Format counties grouped by state: "State: County1, County2" (alphabetized states & counties)
+    function formatCountyListString(countiesArr) {
+      const stateMap = {};
+      countiesArr.forEach(c => {
+        if (!stateMap[c.state]) {
+          stateMap[c.state] = [];
+        }
+        if (!stateMap[c.state].includes(c.county)) {
+          stateMap[c.state].push(c.county);
+        }
+      });
+
+      const sortedStates = Object.keys(stateMap).sort();
+      let lines = [];
+      sortedStates.forEach(state => {
+        const sortedCounties = stateMap[state].sort().join(', ');
+        lines.push(`<strong>${state}:</strong> ${sortedCounties}`);
+      });
+      return lines.join('<br>');
+    }
+
     async function calculateActiveRoute(activeWaypoints) {
       if (activeWaypoints.length < 2) return;
       
@@ -422,14 +451,36 @@
                   stateName = currentCounty.properties.STATE_NAME;
                 }
                 
-                const fullName = `${baseName} (${stateName})`;
-                uniqueCounties.set(geoid, { geoid, name: fullName });
+                uniqueCounties.set(geoid, { geoid, state: stateName, county: baseName });
             }
           });
           
           visitedCounties = Array.from(uniqueCounties.values());
           document.getElementById('countyCount').innerText = visitedCounties.length;
+          
+          if (visitedCounties.length > 0) {
+            document.getElementById('currentTripToggle').style.display = 'inline-block';
+            document.getElementById('currentCountyListText').innerHTML = formatCountyListString(visitedCounties);
+          } else {
+            document.getElementById('currentTripToggle').style.display = 'none';
+            document.getElementById('currentTripDetails').style.display = 'none';
+            currentTripDetailsVisible = false;
+            document.getElementById('currentTripToggle').innerText = 'Show';
+          }
         }
+      }
+    }
+
+    function toggleCurrentTripDetails() {
+      currentTripDetailsVisible = !currentTripDetailsVisible;
+      const detailsDiv = document.getElementById('currentTripDetails');
+      const toggleBtn = document.getElementById('currentTripToggle');
+      if (currentTripDetailsVisible) {
+        detailsDiv.style.display = 'block';
+        toggleBtn.innerText = 'Hide';
+      } else {
+        detailsDiv.style.display = 'none';
+        toggleBtn.innerText = 'Show';
       }
     }
 
@@ -442,7 +493,11 @@
       for (const trip of tripHistory) {
         if (trip.visible !== false) {
           trip.counties.forEach(c => {
-            countyCounts[c.geoid] = (countyCounts[c.geoid] || 0) + 1;
+            // Support both old objects (with .name) and new objects (with .state and .county)
+            const geoid = c.geoid;
+            if (geoid) {
+              countyCounts[geoid] = (countyCounts[geoid] || 0) + 1;
+            }
           });
 
           if (trip.waypoints && trip.waypoints.length > 1) {
@@ -515,7 +570,7 @@
       const newTrip = {
         id: Date.now(),
         name: name,
-        counties: visitedCounties,
+        counties: visitedCounties, // stored as array of { geoid, state, county }
         waypoints: activeWaypoints,
         date: new Date().toLocaleDateString(),
         visible: true
@@ -527,6 +582,10 @@
       // Reset UI
       document.getElementById('tripName').value = '';
       document.getElementById('countyCount').innerText = '0';
+      document.getElementById('currentTripToggle').style.display = 'none';
+      document.getElementById('currentTripDetails').style.display = 'none';
+      currentTripDetailsVisible = false;
+      document.getElementById('currentTripToggle').innerText = 'Show';
       
       document.getElementById('inputsContainer').innerHTML = `
         <div class="autocomplete-container">
@@ -563,7 +622,17 @@
       const list = document.getElementById('historyList');
       list.innerHTML = '';
       tripHistory.forEach(trip => {
-        const countyNames = trip.counties.map(c => c.name).join(', ');
+        // Convert old or new format to state-grouped string
+        let formattedCountyText = "";
+        if (trip.counties && trip.counties.length > 0) {
+          if (trip.counties[0].state && trip.counties[0].county) {
+            formattedCountyText = formatCountyListString(trip.counties);
+          } else {
+            // Legacy fallback if old trip object format exists
+            formattedCountyText = trip.counties.map(c => c.name).join(', ');
+          }
+        }
+
         const isVisible = trip.visible !== false;
         const toggleText = isVisible ? 'Hide' : 'Show';
         
@@ -579,7 +648,7 @@
             <small>${trip.date} • ${trip.counties.length} counties</small>
             <div id="details-${trip.id}" class="trip-details">
               <strong>Counties Visited:</strong><br>
-              ${countyNames}
+              ${formattedCountyText}
             </div>
           </div>
         `;
