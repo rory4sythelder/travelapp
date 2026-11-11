@@ -14,14 +14,14 @@
     body { margin: 0; padding: 0; display: flex; height: 100vh; font-family: Arial, sans-serif; }
     #sidebar { width: 385px; background: #f8f9fa; padding: 20px; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1; }
     #map { flex-grow: 1; }
-    input, button, select { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+    input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
     button { background: #007bff; color: white; border: none; cursor: pointer; }
     button:hover { background: #0056b3; }
     .save-btn { background: #28a745; }
     .save-btn:hover { background: #218838; }
     .trip-item { border-bottom: 1px solid #ddd; padding: 10px 0; cursor: pointer; }
     .trip-item:hover { background-color: #e9ecef; }
-    .trip-details { display: none; padding: 10px; background: #fff; border: 1px solid #ddd; margin-top: 5px; max-height: 150px; overflow-y: auto; font-size: 0.9em; }
+    .trip-details { padding: 10px; background: #fff; border: 1px solid #ddd; margin-top: 5px; max-height: 150px; overflow-y: auto; font-size: 0.9em; }
     
     .action-btn {
       padding: 2px 0;
@@ -110,22 +110,23 @@
     <div id="currentTrip" style="margin-top: 20px; border: 1px solid #ddd; padding: 15px; background: #fff; border-radius: 5px;">
       <h3 style="margin-top: 0;">Current Trip</h3>
       
-      <!-- Display View Selector -->
-      <div style="margin-bottom: 10px;">
-        <label style="font-size: 0.85em; font-weight: bold; display: block; margin-bottom: 3px;">County View Mode:</label>
-        <select id="currentDisplayMode" onchange="updateCurrentTripUI()" style="margin-bottom: 0;">
-          <option value="state">By State</option>
-          <option value="order">By Route Order</option>
-        </select>
-      </div>
-
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
         <span>Counties Visited: <span id="countyCount">0</span></span>
-        <button class="action-btn toggle-btn" id="currentTripToggle" onclick="toggleCurrentTripDetails()" style="display: none;">Show</button>
+        <div>
+          <button class="action-btn toggle-btn" id="currentTripToggle" onclick="toggleCurrentTripDetails()">Hide</button>
+        </div>
       </div>
-      <div id="currentTripDetails" class="trip-details" style="margin-top: 5px;">
+
+      <!-- Mode Toggles (shown only when county list is toggled ON) -->
+      <div id="currentModeToggleContainer" style="display: flex; gap: 5px; margin-bottom: 8px;">
+        <button id="modeStateBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #007bff;" onclick="setCurrentMode('state')">By State</button>
+        <button id="modeOrderBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #6c757d;" onclick="setCurrentMode('order')">By Route Order</button>
+      </div>
+
+      <div id="currentTripDetails" class="trip-details">
         <div id="currentCountyListText"></div>
       </div>
+
       <input type="text" id="tripName" placeholder="Name this trip (optional)" style="margin-top: 10px;">
       <button class="save-btn" onclick="saveTrip()">Save Trip</button>
     </div>
@@ -160,24 +161,16 @@
     let map;
     let waypoints = []; 
     let waypointNames = []; 
-    let visitedCounties = []; // Array of { geoid, state, county } ordered by intersection along route
+    let visitedCounties = []; 
     let tripHistory = JSON.parse(localStorage.getItem('mapTrips')) || [];
     let countyGeoJSON = null;
     let markers = [];
-    let currentTripDetailsVisible = false;
+    let currentTripDetailsVisible = true; // Default toggled ON
+    let currentDisplayMode = 'state';   // Default mode 'state'
 
-    // High contrast, fast-ramping discrete color palette for 1 through 10+
     const visitColors = [
-      '#ffc0cb', // 1: Soft Pink
-      '#ff80a0', // 2: Medium Pink
-      '#ff3366', // 3: Bright Rose Pink
-      '#e60039', // 4: Vibrant Red-Pink
-      '#cc0000', // 5: Strong Red
-      '#990000', // 6: Deep Red
-      '#660066', // 7: Dark Purple-Red
-      '#4d004d', // 8: Deep Plum
-      '#330033', // 9: Very Dark Purple
-      '#1a001a'  // 10+: Near Black / Deepest Eggplant
+      '#ffc0cb', '#ff80a0', '#ff3366', '#e60039', '#cc0000',
+      '#990000', '#660066', '#4d004d', '#330033', '#1a001a'
     ];
 
     const stateFIPS = {
@@ -209,7 +202,6 @@
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     map.on('load', () => {
-      // 1. Base Counties Layer
       map.addSource('all-counties', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'all-counties-layer',
@@ -222,7 +214,6 @@
         }
       });
 
-      // 2. Discrete Step Color Layer for Visit Frequencies (1 to 10+)
       map.addSource('highlighted-counties', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'highlighted-counties-layer',
@@ -248,7 +239,6 @@
         }
       });
 
-      // 3. Multi-Route Line Layers source
       map.addSource('routes', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'routes-layer',
@@ -272,6 +262,7 @@
         
       renderHistory();
       buildLegendBoxes();
+      updateCurrentTripUIState();
     });
 
     function buildLegendBoxes() {
@@ -287,10 +278,15 @@
       }
     }
 
-    // Map Click Event with US boundary check
     map.on('click', async (e) => {
+      // Check 10 destination limit (max 10 total points)
+      const validWaypointsCount = waypoints.filter(w => w !== undefined).length;
+      if (validWaypointsCount >= 10) {
+        alert("Maximum limit of 10 destinations reached for this route.");
+        return;
+      }
+
       const pt = turf.point([e.lngLat.lng, e.lngLat.lat]);
-      
       if (!countyGeoJSON) return;
 
       let clickedInsideUS = false;
@@ -356,6 +352,12 @@
     }
 
     function selectSuggestion(feature, inputElement, index) {
+      const validWaypointsCount = waypoints.filter(w => w !== undefined).length;
+      if (waypoints[index] === undefined && validWaypointsCount >= 10) {
+        alert("Maximum limit of 10 destinations reached for this route.");
+        return;
+      }
+
       inputElement.value = feature.place_name;
       inputElement.nextElementSibling.style.display = 'none';
       const coords = feature.center;
@@ -378,6 +380,12 @@
     }
 
     function addWaypoint(coords, placeName) {
+      const validWaypointsCount = waypoints.filter(w => w !== undefined).length;
+      if (validWaypointsCount >= 10) {
+        alert("Maximum limit of 10 destinations reached for this route.");
+        return;
+      }
+
       const nextIndex = waypoints.length;
       waypoints.push(coords);
       waypointNames.push(placeName);
@@ -398,7 +406,6 @@
       }
     }
 
-    // Rebuild map markers with numbered badges showing stop order (1, 2, 3...)
     function rebuildMarkers() {
       markers.forEach(m => m.remove());
       markers = [];
@@ -416,6 +423,9 @@
     }
 
     function addDestinationInputBox(val = '') {
+      const inputs = document.querySelectorAll('.stop-input');
+      if (inputs.length >= 10) return; // Prevent adding more than 10 inputs
+
       const container = document.getElementById('inputsContainer');
       const index = container.children.length;
       const div = document.createElement('div');
@@ -430,25 +440,21 @@
     function checkAndAddDestinationBox() {
       const inputs = document.querySelectorAll('.stop-input');
       const lastInput = inputs[inputs.length - 1];
-      if (inputs.length >= 2 && lastInput && lastInput.value.trim() !== '') {
+      if (inputs.length < 10 && inputs.length >= 2 && lastInput && lastInput.value.trim() !== '') {
         addDestinationInputBox();
       }
     }
 
-    // Formatting functions for County Lists
     function formatCountyList(countiesArr, mode) {
       if (!countiesArr || countiesArr.length === 0) return "";
 
       if (mode === 'order') {
-        // Route Order: list counties in order of appearance along path, followed by state in parentheses
         let lines = [];
         countiesArr.forEach((c, index) => {
-          lines.append ? null : null; // placeholder logic
           lines.push(`${index + 1}. ${c.county} (${c.state})`);
         });
         return lines.join('<br>');
       } else {
-        // By State: Grouped by state, alphabetized states & counties
         const stateMap = {};
         countiesArr.forEach(c => {
           if (!stateMap[c.state]) {
@@ -469,11 +475,43 @@
       }
     }
 
-    function updateCurrentTripUI() {
-      const mode = document.getElementById('currentDisplayMode').value;
-      if (visitedCounties.length > 0) {
-        document.getElementById('currentCountyListText').innerHTML = formatCountyList(visitedCounties, mode);
+    function updateCurrentTripUIState() {
+      const detailsDiv = document.getElementById('currentTripDetails');
+      const toggleBtn = document.getElementById('currentTripToggle');
+      const modeToggleContainer = document.getElementById('currentModeToggleContainer');
+
+      if (currentTripDetailsVisible) {
+        detailsDiv.style.display = 'block';
+        toggleBtn.innerText = 'Hide';
+        modeToggleContainer.style.display = 'flex';
+        
+        // Update active styles on toggle buttons
+        if (currentDisplayMode === 'state') {
+          document.getElementById('modeStateBtn').style.background = '#007bff';
+          document.getElementById('modeOrderBtn').style.background = '#6c757d';
+        } else {
+          document.getElementById('modeStateBtn').style.background = '#6c757d';
+          document.getElementById('modeOrderBtn').style.background = '#007bff';
+        }
+      } else {
+        detailsDiv.style.display = 'none';
+        toggleBtn.innerText = 'Show';
+        modeToggleContainer.style.display = 'none';
       }
+
+      if (visitedCounties.length > 0) {
+        document.getElementById('currentCountyListText').innerHTML = formatCountyList(visitedCounties, currentDisplayMode);
+      }
+    }
+
+    function toggleCurrentTripDetails() {
+      currentTripDetailsVisible = !currentTripDetailsVisible;
+      updateCurrentTripUIState();
+    }
+
+    function setCurrentMode(mode) {
+      currentDisplayMode = mode;
+      updateCurrentTripUIState();
     }
 
     async function calculateActiveRoute(activeWaypoints) {
@@ -490,11 +528,8 @@
 
         if (countyGeoJSON) {
           const line = turf.lineString(routeGeoJSON.coordinates);
-          
-          // To track order of intersection along the route line:
-          // We can sample points along the line and check which county they fall into in sequence
           const lineDist = turf.length(line, {units: 'kilometers'});
-          const step = Math.max(0.5, lineDist / 200); // sample every 0.5km or 200 steps
+          const step = Math.max(0.5, lineDist / 200);
           
           visitedCounties = [];
           const seenGeoids = new Set();
@@ -518,30 +553,8 @@
           }
 
           document.getElementById('countyCount').innerText = visitedCounties.length;
-          updateCurrentTripUI();
-          
-          if (visitedCounties.length > 0) {
-            document.getElementById('currentTripToggle').style.display = 'inline-block';
-          } else {
-            document.getElementById('currentTripToggle').style.display = 'none';
-            document.getElementById('currentTripDetails').style.display = 'none';
-            currentTripDetailsVisible = false;
-            document.getElementById('currentTripToggle').innerText = 'Show';
-          }
+          updateCurrentTripUIState();
         }
-      }
-    }
-
-    function toggleCurrentTripDetails() {
-      currentTripDetailsVisible = !currentTripDetailsVisible;
-      const detailsDiv = document.getElementById('currentTripDetails');
-      const toggleBtn = document.getElementById('currentTripToggle');
-      if (currentTripDetailsVisible) {
-        detailsDiv.style.display = 'block';
-        toggleBtn.innerText = 'Hide';
-      } else {
-        detailsDiv.style.display = 'none';
-        toggleBtn.innerText = 'Show';
       }
     }
 
@@ -623,7 +636,6 @@
 
       let name = document.getElementById('tripName').value.trim();
       if (!name) {
-        // Count existing trips to determine next auto number
         const autoNum = tripHistory.length + 1;
         name = `Trip ${autoNum}`;
       }
@@ -635,7 +647,7 @@
         waypoints: activeWaypoints,
         date: new Date().toLocaleDateString(),
         visible: true,
-        displayMode: document.getElementById('currentDisplayMode').value
+        displayMode: currentDisplayMode
       };
 
       tripHistory.unshift(newTrip);
@@ -644,10 +656,8 @@
       // Reset UI
       document.getElementById('tripName').value = '';
       document.getElementById('countyCount').innerText = '0';
-      document.getElementById('currentTripToggle').style.display = 'none';
-      document.getElementById('currentTripDetails').style.display = 'none';
-      currentTripDetailsVisible = false;
-      document.getElementById('currentTripToggle').innerText = 'Show';
+      currentTripDetailsVisible = true;
+      currentDisplayMode = 'state';
       
       document.getElementById('inputsContainer').innerHTML = `
         <div class="autocomplete-container">
@@ -669,6 +679,7 @@
 
       renderHistory();
       updateHighlightsAndRoutes();
+      updateCurrentTripUIState();
     }
 
     function toggleDetails(id) {
@@ -707,7 +718,7 @@
               </div>
             </div>
             <small>${trip.date} • ${trip.counties.length} counties</small>
-            <div id="details-${trip.id}" class="trip-details">
+            <div id="details-${trip.id}" class="trip-details" style="display: none;">
               <strong>Counties Visited (${mode === 'order' ? 'Route Order' : 'By State'}):</strong><br>
               ${formattedCountyText}
             </div>
