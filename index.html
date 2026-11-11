@@ -599,8 +599,6 @@
       
       if (data.routes && data.routes.length > 0) {
         const routeGeoJSON = data.routes[0].geometry;
-        
-        updateHighlightsAndRoutes(routeGeoJSON);
 
         if (countyGeoJSON) {
           const line = turf.lineString(routeGeoJSON.coordinates);
@@ -631,6 +629,8 @@
           document.getElementById('countyCount').innerText = visitedCounties.length;
           updateCurrentTripUIState();
         }
+        
+        updateHighlightsAndRoutes(routeGeoJSON);
       }
     }
 
@@ -678,11 +678,20 @@
         }
       }
 
+      // Also include current route counties and unique Geoids
+      visitedCounties.forEach(c => {
+        const geoid = c.geoid;
+        if (geoid) {
+          countyCounts[geoid] = (countyCounts[geoid] || 0) + 1;
+          uniqueVisibleGeoids.add(geoid);
+        }
+      });
+
       if (activeRouteGeom) {
         routeFeatures.push(turf.lineString(activeRouteGeom.coordinates));
       }
 
-      // Update total visited counties counter based on visible trips
+      // Update total visited counties counter based on visible trips & current route
       document.getElementById('totalCountiesVisited').innerText = uniqueVisibleGeoids.size;
 
       const highlightedFeatures = [];
