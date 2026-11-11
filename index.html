@@ -12,9 +12,9 @@
   
   <style>
     body { margin: 0; padding: 0; display: flex; height: 100vh; font-family: Arial, sans-serif; }
-    #sidebar { width: 370px; background: #f8f9fa; padding: 20px; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1; }
+    #sidebar { width: 385px; background: #f8f9fa; padding: 20px; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1; }
     #map { flex-grow: 1; }
-    input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+    input, button, select { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
     button { background: #007bff; color: white; border: none; cursor: pointer; }
     button:hover { background: #0056b3; }
     .save-btn { background: #28a745; }
@@ -37,6 +37,22 @@
     .toggle-btn:hover { background: #5a6268; }
     .delete-btn { background: #dc3545; color: white; }
     .delete-btn:hover { background: #c82333; }
+
+    /* Custom numbered map markers */
+    .custom-marker {
+      width: 24px;
+      height: 24px;
+      background-color: #007bff;
+      color: white;
+      border: 2px solid white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: bold;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
 
     /* Autocomplete dropdown styles */
     .autocomplete-container { position: relative; margin-bottom: 10px; }
@@ -93,15 +109,24 @@
     <!-- Current Trip Panel (always visible) -->
     <div id="currentTrip" style="margin-top: 20px; border: 1px solid #ddd; padding: 15px; background: #fff; border-radius: 5px;">
       <h3 style="margin-top: 0;">Current Trip</h3>
+      
+      <!-- Display View Selector -->
+      <div style="margin-bottom: 10px;">
+        <label style="font-size: 0.85em; font-weight: bold; display: block; margin-bottom: 3px;">County View Mode:</label>
+        <select id="currentDisplayMode" onchange="updateCurrentTripUI()" style="margin-bottom: 0;">
+          <option value="state">By State</option>
+          <option value="order">By Route Order</option>
+        </select>
+      </div>
+
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
         <span>Counties Visited: <span id="countyCount">0</span></span>
         <button class="action-btn toggle-btn" id="currentTripToggle" onclick="toggleCurrentTripDetails()" style="display: none;">Show</button>
       </div>
       <div id="currentTripDetails" class="trip-details" style="margin-top: 5px;">
-        <strong>Counties Visited:</strong><br>
         <div id="currentCountyListText"></div>
       </div>
-      <input type="text" id="tripName" placeholder="Name this trip" style="margin-top: 10px;">
+      <input type="text" id="tripName" placeholder="Name this trip (optional)" style="margin-top: 10px;">
       <button class="save-btn" onclick="saveTrip()">Save Trip</button>
     </div>
 
@@ -135,7 +160,7 @@
     let map;
     let waypoints = []; 
     let waypointNames = []; 
-    let visitedCounties = [];
+    let visitedCounties = []; // Array of { geoid, state, county } ordered by intersection along route
     let tripHistory = JSON.parse(localStorage.getItem('mapTrips')) || [];
     let countyGeoJSON = null;
     let markers = [];
@@ -216,7 +241,7 @@
             7, visitColors[6],
             8, visitColors[7],
             9, visitColors[8],
-            visitColors[9] // default for 10+
+            visitColors[9]
           ],
           'fill-opacity': 0.75,
           'fill-outline-color': '#1a001a'
@@ -249,7 +274,6 @@
       buildLegendBoxes();
     });
 
-    // Build discrete legend boxes for intervals 1 through 10+
     function buildLegendBoxes() {
       const container = document.getElementById('legendBoxes');
       if (container) {
@@ -344,11 +368,7 @@
       waypoints[index] = coords;
       waypointNames[index] = placeName;
 
-      if (markers[index]) {
-        markers[index].remove();
-      }
-      markers[index] = new mapboxgl.Marker().setLngLat(coords).addTo(map);
-
+      rebuildMarkers();
       checkAndAddDestinationBox();
 
       const validWaypoints = waypoints.filter(w => w !== undefined);
@@ -362,9 +382,6 @@
       waypoints.push(coords);
       waypointNames.push(placeName);
 
-      const marker = new mapboxgl.Marker().setLngLat(coords).addTo(map);
-      markers.push(marker);
-
       const inputs = document.querySelectorAll('.stop-input');
       if (inputs[nextIndex]) {
         inputs[nextIndex].value = placeName;
@@ -372,12 +389,30 @@
         addDestinationInputBox(placeName);
       }
 
+      rebuildMarkers();
       checkAndAddDestinationBox();
 
       const validWaypoints = waypoints.filter(w => w !== undefined);
       if (validWaypoints.length > 1) {
         calculateActiveRoute(validWaypoints);
       }
+    }
+
+    // Rebuild map markers with numbered badges showing stop order (1, 2, 3...)
+    function rebuildMarkers() {
+      markers.forEach(m => m.remove());
+      markers = [];
+
+      waypoints.forEach((coords, idx) => {
+        if (coords) {
+          const el = document.createElement('div');
+          el.className = 'custom-marker';
+          el.innerText = idx + 1;
+
+          const marker = new mapboxgl.Marker(el).setLngLat(coords).addTo(map);
+          markers.push(marker);
+        }
+      });
     }
 
     function addDestinationInputBox(val = '') {
@@ -400,25 +435,45 @@
       }
     }
 
-    // Format counties grouped by state: "State: County1, County2" (alphabetized states & counties)
-    function formatCountyListString(countiesArr) {
-      const stateMap = {};
-      countiesArr.forEach(c => {
-        if (!stateMap[c.state]) {
-          stateMap[c.state] = [];
-        }
-        if (!stateMap[c.state].includes(c.county)) {
-          stateMap[c.state].push(c.county);
-        }
-      });
+    // Formatting functions for County Lists
+    function formatCountyList(countiesArr, mode) {
+      if (!countiesArr || countiesArr.length === 0) return "";
 
-      const sortedStates = Object.keys(stateMap).sort();
-      let lines = [];
-      sortedStates.forEach(state => {
-        const sortedCounties = stateMap[state].sort().join(', ');
-        lines.push(`<strong>${state}:</strong> ${sortedCounties}`);
-      });
-      return lines.join('<br>');
+      if (mode === 'order') {
+        // Route Order: list counties in order of appearance along path, followed by state in parentheses
+        let lines = [];
+        countiesArr.forEach((c, index) => {
+          lines.append ? null : null; // placeholder logic
+          lines.push(`${index + 1}. ${c.county} (${c.state})`);
+        });
+        return lines.join('<br>');
+      } else {
+        // By State: Grouped by state, alphabetized states & counties
+        const stateMap = {};
+        countiesArr.forEach(c => {
+          if (!stateMap[c.state]) {
+            stateMap[c.state] = [];
+          }
+          if (!stateMap[c.state].includes(c.county)) {
+            stateMap[c.state].push(c.county);
+          }
+        });
+
+        const sortedStates = Object.keys(stateMap).sort();
+        let lines = [];
+        sortedStates.forEach(state => {
+          const sortedCounties = stateMap[state].sort().join(', ');
+          lines.push(`<strong>${state}:</strong> ${sortedCounties}`);
+        });
+        return lines.join('<br>');
+      }
+    }
+
+    function updateCurrentTripUI() {
+      const mode = document.getElementById('currentDisplayMode').value;
+      if (visitedCounties.length > 0) {
+        document.getElementById('currentCountyListText').innerHTML = formatCountyList(visitedCounties, mode);
+      }
     }
 
     async function calculateActiveRoute(activeWaypoints) {
@@ -435,32 +490,38 @@
 
         if (countyGeoJSON) {
           const line = turf.lineString(routeGeoJSON.coordinates);
-          visitedCounties = [];
           
-          const uniqueCounties = new Map(); 
+          // To track order of intersection along the route line:
+          // We can sample points along the line and check which county they fall into in sequence
+          const lineDist = turf.length(line, {units: 'kilometers'});
+          const step = Math.max(0.5, lineDist / 200); // sample every 0.5km or 200 steps
+          
+          visitedCounties = [];
+          const seenGeoids = new Set();
 
-          turf.featureEach(countyGeoJSON, (currentCounty) => {
-            if (turf.booleanIntersects(line, currentCounty)) {
-                const geoid = currentCounty.properties.GEOID || currentCounty.properties.STATEFP + currentCounty.properties.COUNTYFP;
+          for (let d = 0; d <= lineDist; d += step) {
+            const pt = turf.along(line, d, {units: 'kilometers'});
+            turf.featureEach(countyGeoJSON, (currentCounty) => {
+              const geoid = currentCounty.properties.GEOID || currentCounty.properties.STATEFP + currentCounty.properties.COUNTYFP;
+              if (!seenGeoids.has(geoid) && turf.booleanPointInPolygon(pt, currentCounty)) {
+                seenGeoids.add(geoid);
                 const baseName = currentCounty.properties.NAME || 'Unknown County';
-                
                 let stateName = 'Unknown State';
                 if (currentCounty.properties.STATEFP && stateFIPS[currentCounty.properties.STATEFP]) {
                   stateName = stateFIPS[currentCounty.properties.STATEFP];
                 } else if (currentCounty.properties.STATE_NAME) {
                   stateName = currentCounty.properties.STATE_NAME;
                 }
-                
-                uniqueCounties.set(geoid, { geoid, state: stateName, county: baseName });
-            }
-          });
-          
-          visitedCounties = Array.from(uniqueCounties.values());
+                visitedCounties.push({ geoid, state: stateName, county: baseName });
+              }
+            });
+          }
+
           document.getElementById('countyCount').innerText = visitedCounties.length;
+          updateCurrentTripUI();
           
           if (visitedCounties.length > 0) {
             document.getElementById('currentTripToggle').style.display = 'inline-block';
-            document.getElementById('currentCountyListText').innerHTML = formatCountyListString(visitedCounties);
           } else {
             document.getElementById('currentTripToggle').style.display = 'none';
             document.getElementById('currentTripDetails').style.display = 'none';
@@ -493,7 +554,6 @@
       for (const trip of tripHistory) {
         if (trip.visible !== false) {
           trip.counties.forEach(c => {
-            // Support both old objects (with .name) and new objects (with .state and .county)
             const geoid = c.geoid;
             if (geoid) {
               countyCounts[geoid] = (countyCounts[geoid] || 0) + 1;
@@ -561,19 +621,21 @@
         return;
       }
 
-      const name = document.getElementById('tripName').value;
+      let name = document.getElementById('tripName').value.trim();
       if (!name) {
-        alert("Please name this trip.");
-        return;
+        // Count existing trips to determine next auto number
+        const autoNum = tripHistory.length + 1;
+        name = `Trip ${autoNum}`;
       }
 
       const newTrip = {
         id: Date.now(),
         name: name,
-        counties: visitedCounties, // stored as array of { geoid, state, county }
+        counties: visitedCounties,
         waypoints: activeWaypoints,
         date: new Date().toLocaleDateString(),
-        visible: true
+        visible: true,
+        displayMode: document.getElementById('currentDisplayMode').value
       };
 
       tripHistory.unshift(newTrip);
@@ -622,13 +684,12 @@
       const list = document.getElementById('historyList');
       list.innerHTML = '';
       tripHistory.forEach(trip => {
-        // Convert old or new format to state-grouped string
+        const mode = trip.displayMode || 'state';
         let formattedCountyText = "";
         if (trip.counties && trip.counties.length > 0) {
           if (trip.counties[0].state && trip.counties[0].county) {
-            formattedCountyText = formatCountyListString(trip.counties);
+            formattedCountyText = formatCountyList(trip.counties, mode);
           } else {
-            // Legacy fallback if old trip object format exists
             formattedCountyText = trip.counties.map(c => c.name).join(', ');
           }
         }
@@ -647,7 +708,7 @@
             </div>
             <small>${trip.date} • ${trip.counties.length} counties</small>
             <div id="details-${trip.id}" class="trip-details">
-              <strong>Counties Visited:</strong><br>
+              <strong>Counties Visited (${mode === 'order' ? 'Route Order' : 'By State'}):</strong><br>
               ${formattedCountyText}
             </div>
           </div>
