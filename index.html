@@ -159,7 +159,7 @@
         </div>
 
         <div id="currentTripDetails" class="trip-details">
-          <div id="currentCountyListText"></div>
+          <div id="currentCountyListText" style="color: #666; font-style: italic;">Add a route to see the counties that it passes through.</div>
         </div>
 
         <input type="text" id="tripName" placeholder="Name this trip (optional)" style="margin-top: 10px; margin-bottom: 8px;">
@@ -188,7 +188,14 @@
 
   <!-- Right Sidebar: Trip History ONLY -->
   <div id="sidebar">
-    <h3 style="margin-top: 0;">Trip History</h3>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <h3 style="margin: 0;">Trip History</h3>
+      <!-- Global History Mode Toggles -->
+      <div id="globalModeToggleContainer" style="display: flex; gap: 3px;">
+        <button id="globalModeStateBtn" class="action-btn" style="width: 55px; background: #007bff; font-size: 0.75em;" onclick="setGlobalHistoryMode('state')">By State</button>
+        <button id="globalModeOrderBtn" class="action-btn" style="width: 55px; background: #6c757d; font-size: 0.75em;" onclick="setGlobalHistoryMode('order')">By Order</button>
+      </div>
+    </div>
     <div id="historyList"></div>
   </div>
 
@@ -204,6 +211,7 @@
     let markers = [];
     let currentTripDetailsVisible = true; // Default toggled ON
     let currentDisplayMode = 'state';   // Default mode 'state'
+    let globalHistoryMode = 'state';    // Default global history mode 'state'
 
     const visitColors = [
       '#ffc0cb', '#ff80a0', '#ff3366', '#e60039', '#cc0000',
@@ -236,7 +244,6 @@
       ]
     });
 
-    // Add navigation control (Zoom +/- buttons) to top-right of map, just left of the right sidebar
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
 
     map.on('load', () => {
@@ -516,6 +523,7 @@
       const detailsDiv = document.getElementById('currentTripDetails');
       const toggleBtn = document.getElementById('currentTripToggle');
       const modeToggleContainer = document.getElementById('currentModeToggleContainer');
+      const textContainer = document.getElementById('currentCountyListText');
 
       if (currentTripDetailsVisible) {
         detailsDiv.style.display = 'block';
@@ -536,7 +544,13 @@
       }
 
       if (visitedCounties.length > 0) {
-        document.getElementById('currentCountyListText').innerHTML = formatCountyList(visitedCounties, currentDisplayMode);
+        textContainer.style.color = '#000';
+        textContainer.style.fontStyle = 'normal';
+        textContainer.innerHTML = formatCountyList(visitedCounties, currentDisplayMode);
+      } else {
+        textContainer.style.color = '#666';
+        textContainer.style.fontStyle = 'italic';
+        textContainer.innerHTML = "Add a route to see the counties that it passes through.";
       }
     }
 
@@ -548,6 +562,18 @@
     function setCurrentMode(mode) {
       currentDisplayMode = mode;
       updateCurrentTripUIState();
+    }
+
+    function setGlobalHistoryMode(mode) {
+      globalHistoryMode = mode;
+      if (globalHistoryMode === 'state') {
+        document.getElementById('globalModeStateBtn').style.background = '#007bff';
+        document.getElementById('globalModeOrderBtn').style.background = '#6c757d';
+      } else {
+        document.getElementById('globalModeStateBtn').style.background = '#6c757d';
+        document.getElementById('globalModeOrderBtn').style.background = '#007bff';
+      }
+      renderHistory();
     }
 
     async function calculateActiveRoute(activeWaypoints) {
@@ -682,8 +708,7 @@
         counties: visitedCounties,
         waypoints: activeWaypoints,
         date: new Date().toLocaleDateString(),
-        visible: true,
-        displayMode: currentDisplayMode
+        visible: true
       };
 
       tripHistory.unshift(newTrip);
@@ -731,11 +756,10 @@
       const list = document.getElementById('historyList');
       list.innerHTML = '';
       tripHistory.forEach(trip => {
-        const mode = trip.displayMode || 'state';
         let formattedCountyText = "";
         if (trip.counties && trip.counties.length > 0) {
-          if (trip.counties[0].state && trip.counties.length > 0) {
-            formattedCountyText = formatCountyList(trip.counties, mode);
+          if (trip.counties[0].state && trip.counties[0].county) {
+            formattedCountyText = formatCountyList(trip.counties, globalHistoryMode);
           } else {
             formattedCountyText = trip.counties.map(c => c.name).join(', ');
           }
@@ -755,7 +779,7 @@
             </div>
             <small>${trip.date} • ${trip.counties.length} counties</small>
             <div id="details-${trip.id}" class="trip-details" style="display: none;">
-              <strong>Counties Visited (${mode === 'order' ? 'Route Order' : 'By State'}):}</strong><br>
+              <strong>Counties Visited (${globalHistoryMode === 'order' ? 'Route Order' : 'By State'}):</strong><br>
               ${formattedCountyText}
             </div>
           </div>
