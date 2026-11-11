@@ -112,7 +112,20 @@
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     map.on('load', () => {
-      // 1. Highlighted Counties Layer (added first so it renders beneath the route line)
+      // 1. Base Counties Layer (All counties in grey)
+      map.addSource('all-counties', { type: 'geojson', data: turf.featureCollection([]) });
+      map.addLayer({
+        id: 'all-counties-layer',
+        type: 'fill',
+        source: 'all-counties',
+        paint: {
+          'fill-color': '#d3d3d3',
+          'fill-opacity': 0.4,
+          'fill-outline-color': '#a9a9a9'
+        }
+      });
+
+      // 2. Highlighted Counties Layer (Visited counties in light pink)
       map.addSource('highlighted-counties', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'highlighted-counties-layer',
@@ -120,12 +133,12 @@
         source: 'highlighted-counties',
         paint: {
           'fill-color': 'lightpink',
-          'fill-opacity': 0.6,
+          'fill-opacity': 0.7,
           'fill-outline-color': '#ffb6c1'
         }
       });
 
-      // 2. Route Line Layer
+      // 3. Route Line Layer
       map.addSource('route', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'route-layer',
@@ -138,6 +151,7 @@
         .then(res => res.json())
         .then(data => { 
           countyGeoJSON = data; 
+          map.getSource('all-counties').setData(countyGeoJSON); // Render base grey counties
           updateHighlights(); // Highlight previously saved trips on load
         })
         .catch(err => console.error("Make sure counties.geojson is uploaded!", err));
