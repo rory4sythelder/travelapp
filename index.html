@@ -29,7 +29,7 @@
       border-radius: 4px;
       border: none;
       cursor: pointer;
-      width: 55px; /* Standardized width to prevent size shifts */
+      width: 55px;
       text-align: center;
       display: inline-block;
     }
@@ -68,8 +68,9 @@
       font-size: 0.85em;
       z-index: 2;
     }
-    .legend-scale { display: flex; height: 15px; margin-bottom: 5px; border: 1px solid #ccc; }
-    .legend-labels { display: flex; justify-content: space-between; font-weight: bold; }
+    .legend-boxes { display: flex; gap: 3px; margin-bottom: 5px; align-items: center; }
+    .legend-box { width: 18px; height: 15px; border: 1px solid #ccc; display: inline-block; }
+    .legend-labels { display: flex; justify-content: space-between; font-size: 0.75em; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -89,14 +90,9 @@
       </div>
     </div>
 
-    <!-- Active Waypoints UI -->
-    <div id="waypointContainer" style="display: none; margin-top: 15px;">
-      <strong>Selected Stops:</strong>
-      <ul id="waypointList" style="list-style-type: disc; padding-left: 20px; font-size: 0.9em; margin-top: 5px; margin-bottom: 0;"></ul>
-    </div>
-
-    <div id="currentTrip" style="display: none; margin-top: 20px;">
-      <h3>Current Trip</h3>
+    <!-- Current Trip Panel (always visible) -->
+    <div id="currentTrip" style="margin-top: 20px; border: 1px solid #ddd; padding: 15px; background: #fff; border-radius: 5px;">
+      <h3 style="margin-top: 0;">Current Trip</h3>
       <p>Counties Visited: <span id="countyCount">0</span></p>
       <input type="text" id="tripName" placeholder="Name this trip">
       <button class="save-btn" onclick="saveTrip()">Save Trip</button>
@@ -111,19 +107,22 @@
   <!-- Map Legend -->
   <div id="legend">
     <strong>Frequency of Visits</strong>
-    <div class="legend-scale" id="legendScale"></div>
+    <div class="legend-boxes" id="legendBoxes"></div>
     <div class="legend-labels">
       <span>1</span>
+      <span>2</span>
       <span>3</span>
+      <span>4</span>
+      <span>5</span>
       <span>6</span>
+      <span>7</span>
+      <span>8</span>
       <span>9</span>
       <span>10+</span>
     </div>
   </div>
 
   <script>
-    mapboxgl.accessToken = 'pk.eyJ1Ijoicm9yeTRzeXRoZWxkZ`'; // (Token kept intact)
-    // Re-assign proper token from earlier context:
     mapboxgl.accessToken = 'pk.eyJ1Ijoicm9yeTRzeXRoZWxkZXIiLCJhIjoiY205MXV2eXh1MDUxejJqb2VyOXlqcHduMSJ9.jayP103_JPGAKudstFC6Zw';
 
     let map;
@@ -133,6 +132,20 @@
     let tripHistory = JSON.parse(localStorage.getItem('mapTrips')) || [];
     let countyGeoJSON = null;
     let markers = [];
+
+    // Distinct discrete color palette for intervals 1 through 10+
+    const visitColors = [
+      '#ffb6c1', // 1: Light Pink
+      '#ff9fb1', // 2
+      '#ff89a2', // 3
+      '#ff7291', // 4
+      '#ff5b81', // 5
+      '#ff4571', // 6
+      '#f02e5e', // 7
+      '#d61a4d', // 8
+      '#bd093d', // 9
+      '#9e002c'  // 10+: Dark Burgundy Pink
+    ];
 
     const stateFIPS = {
       '01': 'Alabama', '02': 'Alaska', '04': 'Arizona', '05': 'Arkansas', '06': 'California',
@@ -176,7 +189,7 @@
         }
       });
 
-      // 2. Highlighted Counties Layer
+      // 2. Discrete Step Color Layer for Visit Frequencies (1 to 10+)
       map.addSource('highlighted-counties', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'highlighted-counties-layer',
@@ -184,21 +197,25 @@
         source: 'highlighted-counties',
         paint: {
           'fill-color': [
-            'interpolate',
-            ['linear'],
+            'match',
             ['get', 'visitCount'],
-            1, '#ffb6c1',
-            3, '#ff8fa3',
-            6, '#ff6885',
-            9, '#ff4068',
-            10, '#e60039'
+            1, visitColors[0],
+            2, visitColors[1],
+            3, visitColors[2],
+            4, visitColors[3],
+            5, visitColors[4],
+            6, visitColors[5],
+            7, visitColors[6],
+            8, visitColors[7],
+            9, visitColors[8],
+            visitColors[9] // default for 10+
           ],
           'fill-opacity': 0.75,
-          'fill-outline-color': '#ff4068'
+          'fill-outline-color': '#9e002c'
         }
       });
 
-      // 3. Multi-Route Line Layers source (using LineString feature collection)
+      // 3. Multi-Route Line Layers source
       map.addSource('routes', { type: 'geojson', data: turf.featureCollection([]) });
       map.addLayer({
         id: 'routes-layer',
@@ -221,18 +238,24 @@
         .catch(err => console.error("Make sure counties.geojson is uploaded!", err));
         
       renderHistory();
-      buildLegendGradient();
+      buildLegendBoxes();
     });
 
-    buildLegendGradient();
-    function buildLegendGradient() {
-      const scale = document.getElementById('legendScale');
-      if (scale) {
-        scale.style.background = 'linear-gradient(to right, #ffb6c1, #ff8fa3, #ff6885, #ff4068, #e60039)';
+    // Build discrete legend boxes for intervals 1 through 10+
+    function buildLegendBoxes() {
+      const container = document.getElementById('legendBoxes');
+      if (container) {
+        container.innerHTML = '';
+        visitColors.forEach(color => {
+          const box = document.createElement('span');
+          box.className = 'legend-box';
+          box.style.backgroundColor = color;
+          container.appendChild(box);
+        });
       }
     }
 
-    // Map Click Event with US boundary check (checking if point intersects any US county polygon)
+    // Map Click Event with US boundary check
     map.on('click', async (e) => {
       const pt = turf.point([e.lngLat.lng, e.lngLat.lat]);
       
@@ -318,7 +341,7 @@
       }
       markers[index] = new mapboxgl.Marker().setLngLat(coords).addTo(map);
 
-      updateWaypointUI();
+      checkAndAddDestinationBox();
 
       const validWaypoints = waypoints.filter(w => w !== undefined);
       if (validWaypoints.length > 1) {
@@ -341,7 +364,7 @@
         addDestinationInputBox(placeName);
       }
 
-      updateWaypointUI();
+      checkAndAddDestinationBox();
 
       const validWaypoints = waypoints.filter(w => w !== undefined);
       if (validWaypoints.length > 1) {
@@ -361,24 +384,7 @@
       container.appendChild(div);
     }
 
-    function updateWaypointUI() {
-      const validNames = waypointNames.filter(n => n !== undefined && n !== '');
-      const container = document.getElementById('waypointContainer');
-      const list = document.getElementById('waypointList');
-      
-      list.innerHTML = '';
-      validNames.forEach(name => {
-        const li = document.createElement('li');
-        li.innerText = name;
-        list.appendChild(li);
-      });
-
-      if (validNames.length > 0) {
-        container.style.display = 'block';
-      } else {
-        container.style.display = 'none';
-      }
-
+    function checkAndAddDestinationBox() {
       const inputs = document.querySelectorAll('.stop-input');
       const lastInput = inputs[inputs.length - 1];
       if (inputs.length >= 2 && lastInput && lastInput.value.trim() !== '') {
@@ -386,7 +392,6 @@
       }
     }
 
-    // Calculate active trip route while editing
     async function calculateActiveRoute(activeWaypoints) {
       if (activeWaypoints.length < 2) return;
       
@@ -397,7 +402,6 @@
       if (data.routes && data.routes.length > 0) {
         const routeGeoJSON = data.routes[0].geometry;
         
-        // Temporarily include active route along with visible saved routes
         updateHighlightsAndRoutes(routeGeoJSON);
 
         if (countyGeoJSON) {
@@ -424,21 +428,17 @@
           });
           
           visitedCounties = Array.from(uniqueCounties.values());
-
-          document.getElementById('currentTrip').style.display = 'block';
           document.getElementById('countyCount').innerText = visitedCounties.length;
         }
       }
     }
 
-    // Highlights counties and renders ALL visible saved routes simultaneously
     async function updateHighlightsAndRoutes(activeRouteGeom = null) {
       if (!map.getSource('highlighted-counties') || !countyGeoJSON) return;
 
       const countyCounts = {};
       const routeFeatures = [];
 
-      // Collect counties and routes for all visible trips
       for (const trip of tripHistory) {
         if (trip.visible !== false) {
           trip.counties.forEach(c => {
@@ -460,24 +460,21 @@
         }
       }
 
-      // If user is currently editing a route, include it too
       if (activeRouteGeom) {
         routeFeatures.push(turf.lineString(activeRouteGeom.coordinates));
       }
 
-      // Update highlighted counties
       const highlightedFeatures = [];
       countyGeoJSON.features.forEach(feature => {
         const geoid = feature.properties.GEOID || feature.properties.STATEFP + feature.properties.COUNTYFP;
         if (countyCounts[geoid]) {
           const clonedFeature = JSON.parse(JSON.stringify(feature));
-          clonedFeature.properties.visitCount = countyCounts[geoid];
+          clonedFeature.properties.visitCount = Math.min(countyCounts[geoid], 10);
           highlightedFeatures.push(clonedFeature);
         }
       });
       map.getSource('highlighted-counties').setData(turf.featureCollection(highlightedFeatures));
 
-      // Update all route lines
       map.getSource('routes').setData(turf.featureCollection(routeFeatures));
     }
 
@@ -503,10 +500,18 @@
     }
 
     function saveTrip() {
-      const name = document.getElementById('tripName').value;
-      if (!name || visitedCounties.length === 0) return;
-
       const activeWaypoints = waypoints.filter(w => w !== undefined);
+      if (activeWaypoints.length < 2) {
+        alert("Please select at least two locations to add a route to the map.");
+        return;
+      }
+
+      const name = document.getElementById('tripName').value;
+      if (!name) {
+        alert("Please name this trip.");
+        return;
+      }
+
       const newTrip = {
         id: Date.now(),
         name: name,
@@ -521,9 +526,7 @@
       
       // Reset UI
       document.getElementById('tripName').value = '';
-      document.getElementById('currentTrip').style.display = 'none';
-      document.getElementById('waypointContainer').style.display = 'none';
-      document.getElementById('waypointList').innerHTML = '';
+      document.getElementById('countyCount').innerText = '0';
       
       document.getElementById('inputsContainer').innerHTML = `
         <div class="autocomplete-container">
