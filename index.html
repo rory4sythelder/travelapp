@@ -58,6 +58,7 @@
       top: 20px;
       left: 20px;
       width: 360px;
+      max-width: calc(100vw - 40px); /* Prevents overflow on small screens */
       background: rgba(255, 255, 255, 0.95);
       padding: 15px;
       border-radius: 8px;
@@ -966,6 +967,8 @@
         if (type === 'mobile') {
             document.body.classList.add('mobile-mode');
         }
+        // Force Mapbox to recalculate its canvas size now that the layout has changed
+        setTimeout(() => { map.resize(); }, 100);
     }
     
     function toggleMobileHistory() {
