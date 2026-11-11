@@ -198,6 +198,9 @@
 
   <!-- Right Sidebar: Trip History ONLY -->
   <div id="sidebar">
+    <!-- Total Counties Counter Above Title -->
+    <div style="font-size: 0.9em; color: #555; margin-bottom: 4px;">Total Counties Visited: <strong id="totalCountiesVisited">0</strong></div>
+    
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
       <h3 style="margin: 0;">Trip History</h3>
       <!-- Global History Mode Toggles -->
@@ -635,6 +638,7 @@
       if (!map.getSource('highlighted-counties') || !countyGeoJSON) return;
 
       const countyCounts = {};
+      const uniqueVisibleGeoids = new Set();
       const routeFeatures = [];
 
       // Clear existing trip dot markers
@@ -647,6 +651,7 @@
             const geoid = c.geoid;
             if (geoid) {
               countyCounts[geoid] = (countyCounts[geoid] || 0) + 1;
+              uniqueVisibleGeoids.add(geoid);
             }
           });
 
@@ -676,6 +681,9 @@
       if (activeRouteGeom) {
         routeFeatures.push(turf.lineString(activeRouteGeom.coordinates));
       }
+
+      // Update total visited counties counter based on visible trips
+      document.getElementById('totalCountiesVisited').innerText = uniqueVisibleGeoids.size;
 
       const highlightedFeatures = [];
       countyGeoJSON.features.forEach(feature => {
