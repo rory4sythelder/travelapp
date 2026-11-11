@@ -51,7 +51,7 @@
     .delete-btn { background: #dc3545; color: white; }
     .delete-btn:hover { background: #c82333; }
 
-    /* Floating Panel on Top Right */
+    /* Floating Panel on Top Right with expanded right padding in maxBounds */
     #floating-control-panel {
       position: absolute;
       top: 20px;
@@ -158,10 +158,10 @@
           </div>
         </div>
 
-        <!-- Mode Toggles (shown only when county list is toggled ON) -->
+        <!-- Mode Toggles (equal width flex items, shown only when county list is toggled ON) -->
         <div id="currentModeToggleContainer" style="display: flex; gap: 5px; margin-bottom: 8px;">
-          <button id="modeStateBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #007bff;" onclick="setCurrentMode('state')">By State</button>
-          <button id="modeOrderBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #6c757d;" onclick="setCurrentMode('order')">By Route Order</button>
+          <button id="modeStateBtn" class="action-btn" style="width: 50%; flex: 1 1 0; background: #007bff;" onclick="setCurrentMode('state')">By State</button>
+          <button id="modeOrderBtn" class="action-btn" style="width: 50%; flex: 1 1 0; background: #6c757d;" onclick="setCurrentMode('order')">By Route Order</button>
         </div>
 
         <div id="currentTripDetails" class="trip-details">
@@ -232,7 +232,7 @@
       zoom: 3,
       maxBounds: [
         [-180, 10],
-        [-45, 85]
+        [-25, 85]  // Expanded rightwards from -45 to -25 so the US East Coast isn't obstructed when fully zoomed out
       ]
     });
 
@@ -366,7 +366,7 @@
 
       debounceTimer = setTimeout(async () => {
         try {
-          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}&autocomplete=true&limit=5&bbox=-180,10,-45,85`);
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}&autocomplete=true&limit=5&bbox=-180,10,-25,85`);
           const data = await res.json();
           
           if (data.features && data.features.length > 0) {
