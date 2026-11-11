@@ -196,6 +196,7 @@
         bottom: 0;
         left: 0;
         width: 100%;
+        max-width: 100%; /* Overrides the desktop max-width so it expands and centers properly */
         max-height: 45vh;
         border-radius: 20px 20px 0 0;
         box-sizing: border-box;
@@ -203,8 +204,20 @@
         padding-bottom: 30px;
     }
     body.mobile-mode #legend {
-        bottom: calc(45vh + 15px);
-        left: 10px;
+        top: 15px;
+        bottom: auto;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 5px 10px;
+        font-size: 0.65em;
+        white-space: nowrap;
+    }
+    body.mobile-mode .legend-box {
+        width: 10px;
+        height: 8px;
+    }
+    body.mobile-mode .legend-boxes {
+        margin-bottom: 2px;
     }
   </style>
 </head>
