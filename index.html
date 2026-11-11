@@ -27,9 +27,10 @@
       box-sizing: border-box;
     }
     
-    input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
-    button { background: #007bff; color: white; border: none; cursor: pointer; }
-    button:hover { background: #0056b3; }
+    /* UI Inputs and Buttons (Scoped to avoid breaking Mapbox controls) */
+    #sidebar input, #floating-control-panel input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+    #sidebar button, #floating-control-panel button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; background: #007bff; color: white; border: none; cursor: pointer; }
+    #sidebar button:hover, #floating-control-panel button:hover { background: #0056b3; }
     .save-btn { background: #28a745; }
     .save-btn:hover { background: #218838; }
     .trip-item { border-bottom: 1px solid #ddd; padding: 10px 0; cursor: pointer; }
@@ -90,6 +91,16 @@
       border: 2px solid white;
       border-radius: 50%;
       box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    /* Hover Popup Styles */
+    .mapboxgl-popup-content {
+      padding: 6px 10px !important;
+      font-size: 12px;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+      border-radius: 4px !important;
+      pointer-events: none; /* Let clicks pass through popup */
     }
 
     /* Autocomplete dropdown styles */
@@ -259,6 +270,13 @@
     });
 
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+    
+    // Create the tooltip instance
+    const hoverPopup = new mapboxgl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      offset: 15
+    });
 
     map.on('load', () => {
       map.addSource('all-counties', { type: 'geojson', data: turf.featureCollection([]) });
@@ -322,6 +340,40 @@
       renderHistory();
       buildLegendBoxes();
       updateCurrentTripUIState();
+      
+      // Add hover tooltip event
+      map.on('mousemove', (e) => {
+        if (!countyGeoJSON) return;
+        
+        const features = map.queryRenderedFeatures(e.point, {
+          layers: ['highlighted-counties-layer', 'all-counties-layer']
+        });
+
+        if (features.length > 0) {
+          map.getCanvas().style.cursor = 'crosshair';
+          const feature = features[0];
+          const countyName = feature.properties.NAME || 'Unknown County';
+          
+          let stateName = 'Unknown State';
+          if (feature.properties.STATEFP && stateFIPS[feature.properties.STATEFP]) {
+            stateName = stateFIPS[feature.properties.STATEFP];
+          } else if (feature.properties.STATE_NAME) {
+            stateName = feature.properties.STATE_NAME;
+          }
+
+          hoverPopup.setLngLat(e.lngLat)
+            .setHTML(`<strong>${countyName}</strong><br><span style="color:#666;">${stateName}</span>`)
+            .addTo(map);
+        } else {
+          map.getCanvas().style.cursor = '';
+          hoverPopup.remove();
+        }
+      });
+      
+      // Cleanup tooltip if mouse leaves map completely
+      map.on('mouseout', () => {
+        hoverPopup.remove();
+      });
     });
 
     function buildLegendBoxes() {
