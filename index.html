@@ -19,15 +19,38 @@
     button:hover { background: #0056b3; }
     .save-btn { background: #28a745; }
     .save-btn:hover { background: #218838; }
-    .trip-item { border-bottom: 1px solid #ddd; padding: 10px 0; }
+    .trip-item { border-bottom: 1px solid #ddd; padding: 10px 0; cursor: pointer; }
+    .trip-item:hover { background-color: #e9ecef; }
+    .trip-details { display: none; padding: 10px; background: #fff; border: 1px solid #ddd; margin-top: 5px; max-height: 150px; overflow-y: auto; font-size: 0.9em; }
+    
+    /* Autocomplete dropdown styles */
+    .autocomplete-container { position: relative; }
+    #suggestions {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ccc;
+      border-top: none;
+      z-index: 10;
+      max-height: 200px;
+      overflow-y: auto;
+      display: none;
+    }
+    .suggestion-item { padding: 8px; cursor: pointer; border-bottom: 1px solid #eee; }
+    .suggestion-item:hover { background: #f0f0f0; }
   </style>
 </head>
 <body>
 
   <div id="sidebar">
     <h3>Add Destination</h3>
-    <input type="text" id="addressInput" placeholder="Enter address or city">
-    <button onclick="addAddress()">Add Stop</button>
+    <div class="autocomplete-container">
+      <input type="text" id="addressInput" placeholder="Search address or click on map" oninput="fetchSuggestions()">
+      <div id="suggestions"></div>
+    </div>
+    <!-- <button onclick="addAddress()">Add Stop</button> --> <!-- Removed as selection adds it -->
 
     <div id="currentTrip" style="display: none; margin-top: 20px;">
       <h3>Current Trip</h3>
@@ -36,7 +59,7 @@
       <button class="save-btn" onclick="saveTrip()">Save Trip</button>
     </div>
 
-    <h3 style="margin-top: 30px;">Trip History (Local)</h3>
+    <h3 style="margin-top: 30px;">Trip History</h3>
     <div id="historyList"></div>
   </div>
 
@@ -50,6 +73,7 @@
     let visitedCounties = [];
     let tripHistory = JSON.parse(localStorage.getItem('mapTrips')) || [];
     let countyGeoJSON = null;
+    let markers = [];
 
     // Initialize Map
     map = new mapboxgl.Map({
@@ -68,65 +92,116 @@
         paint: { 'line-color': '#3887be', 'line-width': 5 }
       });
       
-      // Load your county data file
       fetch('counties.geojson')
         .then(res => res.json())
         .then(data => { countyGeoJSON = data; })
-        .catch(err => console.error("Make sure you uploaded counties.geojson to GitHub!", err));
+        .catch(err => console.error("Make sure counties.geojson is uploaded!", err));
         
       renderHistory();
     });
 
-    // Geocoding (Text to Coordinates)
-    async function addAddress() {
+    // 1. Map Click Event to Add Waypoints
+    map.on('click', (e) => {
+      const coords = [e.lngLat.lng, e.lngLat.lat];
+      addWaypoint(coords);
+    });
+
+    // 2. Autocomplete Suggestions
+    let debounceTimer;
+    async function fetchSuggestions() {
+      clearTimeout(debounceTimer);
       const input = document.getElementById('addressInput').value;
-      if (!input) return;
-
-      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?access_token=${mapboxgl.accessToken}`);
-      const data = await res.json();
+      const suggestionsBox = document.getElementById('suggestions');
       
-      if (data.features.length > 0) {
-        const coords = data.features[0].center;
-        waypoints.push(coords);
-        document.getElementById('addressInput').value = '';
-        
-        // Add a visual marker on the map
-        new mapboxgl.Marker().setLngLat(coords).addTo(map);
+      if (!input || input.length < 3) {
+        suggestionsBox.style.display = 'none';
+        return;
+      }
 
-        if (waypoints.length > 1) {
-          calculateRoute();
+      debounceTimer = setTimeout(async () => {
+        try {
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?access_token=${mapboxgl.accessToken}&autocomplete=true&limit=5`);
+          const data = await res.json();
+          
+          if (data.features && data.features.length > 0) {
+            suggestionsBox.innerHTML = '';
+            data.features.forEach(feature => {
+              const div = document.createElement('div');
+              div.className = 'suggestion-item';
+              div.innerText = feature.place_name;
+              div.onclick = () => selectSuggestion(feature);
+              suggestionsBox.appendChild(div);
+            });
+            suggestionsBox.style.display = 'block';
+          } else {
+            suggestionsBox.style.display = 'none';
+          }
+        } catch (err) {
+          console.error("Geocoding error", err);
         }
+      }, 300); // 300ms delay to prevent API spam while typing
+    }
+
+    function selectSuggestion(feature) {
+      document.getElementById('addressInput').value = '';
+      document.getElementById('suggestions').style.display = 'none';
+      const coords = feature.center;
+      
+      // Optional: Fly map to the searched location
+      map.flyTo({ center: coords, zoom: 10 });
+      
+      addWaypoint(coords);
+    }
+
+    // Shared function to add a point (from map click or search)
+    function addWaypoint(coords) {
+      waypoints.push(coords);
+      
+      const marker = new mapboxgl.Marker().setLngLat(coords).addTo(map);
+      markers.push(marker);
+
+      if (waypoints.length > 1) {
+        calculateRoute();
       }
     }
 
-    // Routing & Turf.js Intersection
+    // 3. Routing & Turf.js Intersection
     async function calculateRoute() {
+      if (waypoints.length < 2) return;
+      
+      // Note: Mapbox Directions API driving profile limit is 25 waypoints
       const coordString = waypoints.map(p => `${p[0]},${p[1]}`).join(';');
       const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coordString}?geometries=geojson&access_token=${mapboxgl.accessToken}`);
       const data = await res.json();
       
-      const routeGeoJSON = data.routes[0].geometry;
-      map.getSource('route').setData(routeGeoJSON);
+      if (data.routes && data.routes.length > 0) {
+        const routeGeoJSON = data.routes[0].geometry;
+        map.getSource('route').setData(routeGeoJSON);
 
-      if (countyGeoJSON) {
-        const line = turf.lineString(routeGeoJSON.coordinates);
-        visitedCounties = [];
+        if (countyGeoJSON) {
+          const line = turf.lineString(routeGeoJSON.coordinates);
+          visitedCounties = [];
+          
+          // Use a Set to ensure unique counties if the route snakes in and out
+          const uniqueCounties = new Map(); 
 
-        turf.featureEach(countyGeoJSON, (currentCounty) => {
-          if (turf.booleanIntersects(line, currentCounty)) {
-            visitedCounties.push({
-              geoid: currentCounty.properties.GEOID || 'Unknown',
-              name: currentCounty.properties.NAME || 'Unknown County'
-            });
-          }
-        });
+          turf.featureEach(countyGeoJSON, (currentCounty) => {
+            if (turf.booleanIntersects(line, currentCounty)) {
+                const geoid = currentCounty.properties.GEOID || currentCounty.properties.STATEFP + currentCounty.properties.COUNTYFP;
+                const name = currentCounty.properties.NAME || 'Unknown County';
+                uniqueCounties.set(geoid, { geoid, name });
+            }
+          });
+          
+          visitedCounties = Array.from(uniqueCounties.values());
 
-        document.getElementById('currentTrip').style.display = 'block';
-        document.getElementById('countyCount').innerText = visitedCounties.length;
+          document.getElementById('currentTrip').style.display = 'block';
+          document.getElementById('countyCount').innerText = visitedCounties.length;
+        }
       }
     }
 
-    // Save to Browser Local Storage
+    // 4. Save and Render Trip History with Dropdown Details
     function saveTrip() {
       const name = document.getElementById('tripName').value;
       if (!name || visitedCounties.length === 0) return;
@@ -148,28 +223,47 @@
       visitedCounties = [];
       map.getSource('route').setData(turf.featureCollection([]));
       
-      // Clear physical map markers
-      const markers = document.getElementsByClassName('mapboxgl-marker');
-      while(markers.length > 0) {
-        markers[0].parentNode.removeChild(markers[0]);
-      }
+      markers.forEach(m => m.remove());
+      markers = [];
 
       renderHistory();
+    }
+
+    function toggleDetails(id) {
+      const detailsDiv = document.getElementById(`details-${id}`);
+      if (detailsDiv.style.display === 'block') {
+        detailsDiv.style.display = 'none';
+      } else {
+        detailsDiv.style.display = 'block';
+      }
     }
 
     function renderHistory() {
       const list = document.getElementById('historyList');
       list.innerHTML = '';
       tripHistory.forEach(trip => {
+        // Create comma-separated list of names
+        const countyNames = trip.counties.map(c => c.name).join(', ');
+        
         list.innerHTML += `
-          <div class="trip-item">
+          <div class="trip-item" onclick="toggleDetails(${trip.id})">
             <strong>${trip.name}</strong><br>
-            <small>${trip.date}</small><br>
-            <small>${trip.counties.length} counties</small>
+            <small>${trip.date} • ${trip.counties.length} counties</small>
+            <div id="details-${trip.id}" class="trip-details">
+              <strong>Counties Visited:</strong><br>
+              ${countyNames}
+            </div>
           </div>
         `;
       });
     }
+    
+    // Close suggestions if clicking outside
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('.autocomplete-container')) {
+            document.getElementById('suggestions').style.display = 'none';
+        }
+    });
   </script>
 </body>
 </html>
