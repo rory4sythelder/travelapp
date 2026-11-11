@@ -50,7 +50,12 @@
       <input type="text" id="addressInput" placeholder="Search address or click on map" oninput="fetchSuggestions()">
       <div id="suggestions"></div>
     </div>
-    <!-- <button onclick="addAddress()">Add Stop</button> --> <!-- Removed as selection adds it -->
+
+    <!-- Active Waypoints UI -->
+    <div id="waypointContainer" style="display: none; margin-top: 15px;">
+      <strong>Selected Stops:</strong>
+      <ul id="waypointList" style="list-style-type: decimal; padding-left: 20px; font-size: 0.9em; margin-top: 5px; margin-bottom: 0;"></ul>
+    </div>
 
     <div id="currentTrip" style="display: none; margin-top: 20px;">
       <h3>Current Trip</h3>
@@ -75,12 +80,32 @@
     let countyGeoJSON = null;
     let markers = [];
 
-    // Initialize Map
+    // FIPS codes to map state properties to full names
+    const stateFIPS = {
+      '01': 'Alabama', '02': 'Alaska', '04': 'Arizona', '05': 'Arkansas', '06': 'California',
+      '08': 'Colorado', '09': 'Connecticut', '10': 'Delaware', '11': 'District of Columbia',
+      '12': 'Florida', '13': 'Georgia', '15': 'Hawaii', '16': 'Idaho', '17': 'Illinois',
+      '18': 'Indiana', '19': 'Iowa', '20': 'Kansas', '21': 'Kentucky', '22': 'Louisiana',
+      '23': 'Maine', '24': 'Maryland', '25': 'Massachusetts', '26': 'Michigan', '27': 'Minnesota',
+      '28': 'Mississippi', '29': 'Missouri', '30': 'Montana', '31': 'Nebraska', '32': 'Nevada',
+      '33': 'New Hampshire', '34': 'New Jersey', '35': 'New Mexico', '36': 'New York',
+      '37': 'North Carolina', '38': 'North Dakota', '39': 'Ohio', '40': 'Oklahoma',
+      '41': 'Oregon', '42': 'Pennsylvania', '44': 'Rhode Island', '45': 'South Carolina',
+      '46': 'South Dakota', '47': 'Tennessee', '48': 'Texas', '49': 'Utah', '50': 'Vermont',
+      '51': 'Virginia', '53': 'Washington', '54': 'West Virginia', '55': 'Wisconsin', '56': 'Wyoming',
+      '72': 'Puerto Rico'
+    };
+
+    // Initialize Map locked to US and Canada bounds
     map = new mapboxgl.Map({
       container: 'map',
       style: 'mapbox://styles/mapbox/streets-v11',
       center: [-98.5795, 39.8283],
-      zoom: 3
+      zoom: 3,
+      maxBounds: [
+        [-180, 10], // Southwest coordinates (covers Hawaii & bottom of North America)
+        [-45, 85]   // Northeast coordinates (covers Canada & East Coast)
+      ]
     });
 
     map.on('load', () => {
@@ -100,10 +125,23 @@
       renderHistory();
     });
 
-    // 1. Map Click Event to Add Waypoints
-    map.on('click', (e) => {
+    // 1. Map Click Event to Add Waypoints (with Reverse Geocoding)
+    map.on('click', async (e) => {
       const coords = [e.lngLat.lng, e.lngLat.lat];
-      addWaypoint(coords);
+      
+      // Perform a reverse geocode to get a readable name for the clicked location
+      let placeName = `Coordinates: ${coords[0].toFixed(3)}, ${coords[1].toFixed(3)}`;
+      try {
+        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${coords[0]},${coords[1]}.json?access_token=${mapboxgl.accessToken}`);
+        const data = await res.json();
+        if (data.features && data.features.length > 0) {
+          placeName = data.features[0].place_name;
+        }
+      } catch (err) {
+        console.error("Reverse geocoding failed", err);
+      }
+
+      addWaypoint(coords, placeName);
     });
 
     // 2. Autocomplete Suggestions
@@ -120,7 +158,7 @@
 
       debounceTimer = setTimeout(async () => {
         try {
-          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?access_token=${mapboxgl.accessToken}&autocomplete=true&limit=5`);
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?access_token=${mapboxgl.accessToken}&autocomplete=true&limit=5&bbox=-180,10,-45,85`);
           const data = await res.json();
           
           if (data.features && data.features.length > 0) {
@@ -147,18 +185,23 @@
       document.getElementById('suggestions').style.display = 'none';
       const coords = feature.center;
       
-      // Optional: Fly map to the searched location
       map.flyTo({ center: coords, zoom: 10 });
       
-      addWaypoint(coords);
+      addWaypoint(coords, feature.place_name);
     }
 
-    // Shared function to add a point (from map click or search)
-    function addWaypoint(coords) {
+    // Shared function to add a point (from map click or search) and display it
+    function addWaypoint(coords, placeName) {
       waypoints.push(coords);
       
       const marker = new mapboxgl.Marker().setLngLat(coords).addTo(map);
       markers.push(marker);
+
+      // Add to visible list
+      document.getElementById('waypointContainer').style.display = 'block';
+      const li = document.createElement('li');
+      li.innerText = placeName;
+      document.getElementById('waypointList').appendChild(li);
 
       if (waypoints.length > 1) {
         calculateRoute();
@@ -169,7 +212,6 @@
     async function calculateRoute() {
       if (waypoints.length < 2) return;
       
-      // Note: Mapbox Directions API driving profile limit is 25 waypoints
       const coordString = waypoints.map(p => `${p[0]},${p[1]}`).join(';');
       const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coordString}?geometries=geojson&access_token=${mapboxgl.accessToken}`);
       const data = await res.json();
@@ -182,14 +224,23 @@
           const line = turf.lineString(routeGeoJSON.coordinates);
           visitedCounties = [];
           
-          // Use a Set to ensure unique counties if the route snakes in and out
           const uniqueCounties = new Map(); 
 
           turf.featureEach(countyGeoJSON, (currentCounty) => {
             if (turf.booleanIntersects(line, currentCounty)) {
                 const geoid = currentCounty.properties.GEOID || currentCounty.properties.STATEFP + currentCounty.properties.COUNTYFP;
-                const name = currentCounty.properties.NAME || 'Unknown County';
-                uniqueCounties.set(geoid, { geoid, name });
+                const baseName = currentCounty.properties.NAME || 'Unknown County';
+                
+                // Identify the state name based on FIPS code or fallback to standard properties
+                let stateName = 'Unknown State';
+                if (currentCounty.properties.STATEFP && stateFIPS[currentCounty.properties.STATEFP]) {
+                  stateName = stateFIPS[currentCounty.properties.STATEFP];
+                } else if (currentCounty.properties.STATE_NAME) {
+                  stateName = currentCounty.properties.STATE_NAME;
+                }
+                
+                const fullName = `${baseName} (${stateName})`;
+                uniqueCounties.set(geoid, { geoid, name: fullName });
             }
           });
           
@@ -201,7 +252,7 @@
       }
     }
 
-    // 4. Save and Render Trip History with Dropdown Details
+    // 4. Save and Render Trip History
     function saveTrip() {
       const name = document.getElementById('tripName').value;
       if (!name || visitedCounties.length === 0) return;
@@ -219,6 +270,11 @@
       // Reset current trip UI
       document.getElementById('tripName').value = '';
       document.getElementById('currentTrip').style.display = 'none';
+      
+      // Reset waypoints UI
+      document.getElementById('waypointContainer').style.display = 'none';
+      document.getElementById('waypointList').innerHTML = '';
+      
       waypoints = [];
       visitedCounties = [];
       map.getSource('route').setData(turf.featureCollection([]));
@@ -242,7 +298,6 @@
       const list = document.getElementById('historyList');
       list.innerHTML = '';
       tripHistory.forEach(trip => {
-        // Create comma-separated list of names
         const countyNames = trip.counties.map(c => c.name).join(', ');
         
         list.innerHTML += `
