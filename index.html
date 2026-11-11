@@ -1,53 +1,175 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Travel App</title>
-  <!-- Mapbox CSS -->
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.css" rel="stylesheet" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>County Tracker Map</title>
+  
+  <!-- Mapbox and Turf.js loaded directly from the web -->
+  <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script>
+  <link href='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css' rel='stylesheet' />
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  
   <style>
-    html, body { height: 100%; margin: 0; padding: 0; }
-    #map { width: 100vw; height: 100vh; }
-    #info { 
-      position: absolute; 
-      top: 10px; 
-      left: 10px; 
-      z-index: 10; 
-      background: rgba(255,255,255,0.9); 
-      padding: 8px;
-      border-radius: 5px;
-      font-family: sans-serif;
-      font-size: 14px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-    #countBtn {
-      position: absolute; 
-      top: 10px; 
-      right: 10px; 
-      z-index: 10; 
-      padding: 8px 18px;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-      background: #ff6600;
-      color: #fff;
-      font-weight: bold;
-      font-size: 14px;
-      cursor: pointer;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-    }
-    #countBtn:hover { background: #cc5200;}
+    body { margin: 0; padding: 0; display: flex; height: 100vh; font-family: Arial, sans-serif; }
+    #sidebar { width: 350px; background: #f8f9fa; padding: 20px; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1; }
+    #map { flex-grow: 1; }
+    input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+    button { background: #007bff; color: white; border: none; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    .save-btn { background: #28a745; }
+    .save-btn:hover { background: #218838; }
+    .trip-item { border-bottom: 1px solid #ddd; padding: 10px 0; }
   </style>
 </head>
 <body>
-  <div id="map"></div>
-  <div id="info">Click the map to add waypoints.<br>Then use "Calculate Counties".</div>
-  <button id="countBtn">Calculate Counties</button>
 
-  <!-- MAPBOX GL JS -->
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.js"></script>
-  <!-- TURF JS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
-  <!-- YOUR JS -->
-  <script src="app.js"></script>
+  <div id="sidebar">
+    <h3>Add Destination</h3>
+    <input type="text" id="addressInput" placeholder="Enter address or city">
+    <button onclick="addAddress()">Add Stop</button>
+
+    <div id="currentTrip" style="display: none; margin-top: 20px;">
+      <h3>Current Trip</h3>
+      <p>Counties Visited: <span id="countyCount">0</span></p>
+      <input type="text" id="tripName" placeholder="Name this trip">
+      <button class="save-btn" onclick="saveTrip()">Save Trip</button>
+    </div>
+
+    <h3 style="margin-top: 30px;">Trip History (Local)</h3>
+    <div id="historyList"></div>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1Ijoicm9yeTRzeXRoZWxkZXIiLCJhIjoiY205MXV2eXh1MDUxejJqb2VyOXlqcHduMSJ9.jayP103_JPGAKudstFC6Zw';
+
+    let map;
+    let waypoints = [];
+    let visitedCounties = [];
+    let tripHistory = JSON.parse(localStorage.getItem('mapTrips')) || [];
+    let countyGeoJSON = null;
+
+    // Initialize Map
+    map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/streets-v11',
+      center: [-98.5795, 39.8283],
+      zoom: 3
+    });
+
+    map.on('load', () => {
+      map.addSource('route', { type: 'geojson', data: turf.featureCollection([]) });
+      map.addLayer({
+        id: 'route-layer',
+        type: 'line',
+        source: 'route',
+        paint: { 'line-color': '#3887be', 'line-width': 5 }
+      });
+      
+      // Load your county data file
+      fetch('counties.geojson')
+        .then(res => res.json())
+        .then(data => { countyGeoJSON = data; })
+        .catch(err => console.error("Make sure you uploaded counties.geojson to GitHub!", err));
+        
+      renderHistory();
+    });
+
+    // Geocoding (Text to Coordinates)
+    async function addAddress() {
+      const input = document.getElementById('addressInput').value;
+      if (!input) return;
+
+      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(input)}.json?access_token=${mapboxgl.accessToken}`);
+      const data = await res.json();
+      
+      if (data.features.length > 0) {
+        const coords = data.features[0].center;
+        waypoints.push(coords);
+        document.getElementById('addressInput').value = '';
+        
+        // Add a visual marker on the map
+        new mapboxgl.Marker().setLngLat(coords).addTo(map);
+
+        if (waypoints.length > 1) {
+          calculateRoute();
+        }
+      }
+    }
+
+    // Routing & Turf.js Intersection
+    async function calculateRoute() {
+      const coordString = waypoints.map(p => `${p[0]},${p[1]}`).join(';');
+      const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coordString}?geometries=geojson&access_token=${mapboxgl.accessToken}`);
+      const data = await res.json();
+      
+      const routeGeoJSON = data.routes[0].geometry;
+      map.getSource('route').setData(routeGeoJSON);
+
+      if (countyGeoJSON) {
+        const line = turf.lineString(routeGeoJSON.coordinates);
+        visitedCounties = [];
+
+        turf.featureEach(countyGeoJSON, (currentCounty) => {
+          if (turf.booleanIntersects(line, currentCounty)) {
+            visitedCounties.push({
+              geoid: currentCounty.properties.GEOID || 'Unknown',
+              name: currentCounty.properties.NAME || 'Unknown County'
+            });
+          }
+        });
+
+        document.getElementById('currentTrip').style.display = 'block';
+        document.getElementById('countyCount').innerText = visitedCounties.length;
+      }
+    }
+
+    // Save to Browser Local Storage
+    function saveTrip() {
+      const name = document.getElementById('tripName').value;
+      if (!name || visitedCounties.length === 0) return;
+
+      const newTrip = {
+        id: Date.now(),
+        name: name,
+        counties: visitedCounties,
+        date: new Date().toLocaleDateString()
+      };
+
+      tripHistory.unshift(newTrip);
+      localStorage.setItem('mapTrips', JSON.stringify(tripHistory));
+      
+      // Reset current trip UI
+      document.getElementById('tripName').value = '';
+      document.getElementById('currentTrip').style.display = 'none';
+      waypoints = [];
+      visitedCounties = [];
+      map.getSource('route').setData(turf.featureCollection([]));
+      
+      // Clear physical map markers
+      const markers = document.getElementsByClassName('mapboxgl-marker');
+      while(markers.length > 0) {
+        markers[0].parentNode.removeChild(markers[0]);
+      }
+
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const list = document.getElementById('historyList');
+      list.innerHTML = '';
+      tripHistory.forEach(trip => {
+        list.innerHTML += `
+          <div class="trip-item">
+            <strong>${trip.name}</strong><br>
+            <small>${trip.date}</small><br>
+            <small>${trip.counties.length} counties</small>
+          </div>
+        `;
+      });
+    }
+  </script>
 </body>
 </html>
