@@ -82,6 +82,16 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
 
+    /* Small dot for saved trip waypoints */
+    .trip-dot-marker {
+      width: 10px;
+      height: 10px;
+      background-color: #007bff;
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
     /* Autocomplete dropdown styles */
     .autocomplete-container { position: relative; margin-bottom: 10px; }
     #suggestions {
@@ -209,6 +219,7 @@
     let tripHistory = JSON.parse(localStorage.getItem('mapTrips')) || [];
     let countyGeoJSON = null;
     let markers = [];
+    let tripDotMarkers = [];
     let currentTripDetailsVisible = true; // Default toggled ON
     let currentDisplayMode = 'state';   // Default mode 'state'
     let globalHistoryMode = 'state';    // Default global history mode 'state'
@@ -626,6 +637,10 @@
       const countyCounts = {};
       const routeFeatures = [];
 
+      // Clear existing trip dot markers
+      tripDotMarkers.forEach(m => m.remove());
+      tripDotMarkers = [];
+
       for (const trip of tripHistory) {
         if (trip.visible !== false) {
           trip.counties.forEach(c => {
@@ -635,7 +650,15 @@
             }
           });
 
-          if (trip.waypoints && trip.waypoints.length > 1) {
+          if (trip.waypoints && trip.waypoints.length > 0) {
+            // Add small blue dots for each waypoint of visible saved trips
+            trip.waypoints.forEach(wp => {
+              const el = document.createElement('div');
+              el.className = 'trip-dot-marker';
+              const marker = new mapboxgl.Marker(el).setLngLat(wp).addTo(map);
+              tripDotMarkers.push(marker);
+            });
+
             const coordString = trip.waypoints.map(p => `${p[0]},${p[1]}`).join(';');
             try {
               const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coordString}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`);
