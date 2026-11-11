@@ -11,9 +11,22 @@
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
   
   <style>
-    body { margin: 0; padding: 0; display: flex; height: 100vh; font-family: Arial, sans-serif; }
-    #sidebar { width: 385px; background: #f8f9fa; padding: 20px; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1; }
-    #map { flex-grow: 1; }
+    body { margin: 0; padding: 0; display: flex; height: 100vh; font-family: Arial, sans-serif; overflow: hidden; }
+    
+    /* Left Sidebar: Trip History ONLY */
+    #sidebar { 
+      width: 320px; 
+      background: #f8f9fa; 
+      padding: 20px; 
+      overflow-y: auto; 
+      box-shadow: 2px 0 5px rgba(0,0,0,0.1); 
+      z-index: 2; 
+      height: 100vh;
+      box-sizing: border-box;
+    }
+    
+    #map { flex-grow: 1; height: 100vh; position: relative; }
+    
     input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
     button { background: #007bff; color: white; border: none; cursor: pointer; }
     button:hover { background: #0056b3; }
@@ -37,6 +50,21 @@
     .toggle-btn:hover { background: #5a6268; }
     .delete-btn { background: #dc3545; color: white; }
     .delete-btn:hover { background: #c82333; }
+
+    /* Floating Panel on Top Right */
+    #floating-control-panel {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 360px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      z-index: 3;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+    }
 
     /* Custom numbered map markers */
     .custom-marker {
@@ -87,55 +115,64 @@
     .legend-boxes { display: flex; gap: 3px; margin-bottom: 5px; align-items: center; }
     .legend-box { width: 18px; height: 15px; border: 1px solid #ccc; display: inline-block; }
     .legend-labels { display: flex; justify-content: space-between; font-size: 0.75em; font-weight: bold; }
+
+    /* Remove Mapbox default compass / rotate icon from navigation control */
+    .mapboxgl-ctrl-compass {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
 
+  <!-- Left Sidebar: Trip History ONLY -->
   <div id="sidebar">
-    <h3>County Travel Tracker</h3>
-    
-    <!-- Dynamic Destination Inputs Container -->
-    <div id="inputsContainer">
-      <div class="autocomplete-container">
-        <input type="text" class="stop-input" placeholder="Origin" oninput="fetchSuggestions(this, 0)">
-        <div class="suggestions" style="position:absolute; top:100%; left:0; right:0; background:white; border:1px solid #ccc; z-index:10; max-height:150px; overflow-y:auto; display:none;"></div>
-      </div>
-      <div class="autocomplete-container">
-        <input type="text" class="stop-input" placeholder="Destination" oninput="fetchSuggestions(this, 1)">
-        <div class="suggestions" style="position:absolute; top:100%; left:0; right:0; background:white; border:1px solid #ccc; z-index:10; max-height:150px; overflow-y:auto; display:none;"></div>
-      </div>
-    </div>
-
-    <!-- Current Trip Panel (always visible) -->
-    <div id="currentTrip" style="margin-top: 20px; border: 1px solid #ddd; padding: 15px; background: #fff; border-radius: 5px;">
-      <h3 style="margin-top: 0;">Current Trip</h3>
-      
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <span>Counties Visited: <span id="countyCount">0</span></span>
-        <div>
-          <button class="action-btn toggle-btn" id="currentTripToggle" onclick="toggleCurrentTripDetails()">Hide</button>
-        </div>
-      </div>
-
-      <!-- Mode Toggles (shown only when county list is toggled ON) -->
-      <div id="currentModeToggleContainer" style="display: flex; gap: 5px; margin-bottom: 8px;">
-        <button id="modeStateBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #007bff;" onclick="setCurrentMode('state')">By State</button>
-        <button id="modeOrderBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #6c757d;" onclick="setCurrentMode('order')">By Route Order</button>
-      </div>
-
-      <div id="currentTripDetails" class="trip-details">
-        <div id="currentCountyListText"></div>
-      </div>
-
-      <input type="text" id="tripName" placeholder="Name this trip (optional)" style="margin-top: 10px;">
-      <button class="save-btn" onclick="saveTrip()">Save Trip</button>
-    </div>
-
-    <h3 style="margin-top: 30px;">Trip History</h3>
+    <h3 style="margin-top: 0;">Trip History</h3>
     <div id="historyList"></div>
   </div>
 
-  <div id="map"></div>
+  <div id="map">
+    <!-- Floating Control Panel on Top Right -->
+    <div id="floating-control-panel">
+      <h3 style="margin-top: 0; margin-bottom: 15px;">Route Planning</h3>
+      
+      <!-- Dynamic Destination Inputs Container -->
+      <div id="inputsContainer">
+        <div class="autocomplete-container">
+          <input type="text" class="stop-input" placeholder="Origin" oninput="fetchSuggestions(this, 0)">
+          <div class="suggestions" style="position:absolute; top:100%; left:0; right:0; background:white; border:1px solid #ccc; z-index:10; max-height:150px; overflow-y:auto; display:none;"></div>
+        </div>
+        <div class="autocomplete-container">
+          <input type="text" class="stop-input" placeholder="Destination" oninput="fetchSuggestions(this, 1)">
+          <div class="suggestions" style="position:absolute; top:100%; left:0; right:0; background:white; border:1px solid #ccc; z-index:10; max-height:150px; overflow-y:auto; display:none;"></div>
+        </div>
+      </div>
+
+      <!-- Current Route Panel -->
+      <div id="currentTrip" style="margin-top: 15px; border: 1px solid #ddd; padding: 12px; background: #fafafa; border-radius: 5px;">
+        <h4 style="margin: 0 0 8px 0;">Current Route</h4>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 0.9em;">Counties Visited: <span id="countyCount">0</span></span>
+          <div>
+            <button class="action-btn toggle-btn" id="currentTripToggle" onclick="toggleCurrentTripDetails()">Hide</button>
+          </div>
+        </div>
+
+        <!-- Mode Toggles (shown only when county list is toggled ON) -->
+        <div id="currentModeToggleContainer" style="display: flex; gap: 5px; margin-bottom: 8px;">
+          <button id="modeStateBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #007bff;" onclick="setCurrentMode('state')">By State</button>
+          <button id="modeOrderBtn" class="action-btn" style="width: auto; flex-grow: 1; background: #6c757d;" onclick="setCurrentMode('order')">By Route Order</button>
+        </div>
+
+        <div id="currentTripDetails" class="trip-details">
+          <div id="currentCountyListText"></div>
+        </div>
+
+        <input type="text" id="tripName" placeholder="Name this trip (optional)" style="margin-top: 10px; margin-bottom: 8px;">
+        <button class="save-btn" onclick="saveTrip()" style="margin-bottom: 0;">Save Trip</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Map Legend -->
   <div id="legend">
@@ -199,7 +236,8 @@
       ]
     });
 
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    // Add navigation control (Zoom +/- buttons) to top-left of map, right next to the left sidebar
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
 
     map.on('load', () => {
       map.addSource('all-counties', { type: 'geojson', data: turf.featureCollection([]) });
@@ -279,7 +317,6 @@
     }
 
     map.on('click', async (e) => {
-      // Check 10 destination limit (max 10 total points)
       const validWaypointsCount = waypoints.filter(w => w !== undefined).length;
       if (validWaypointsCount >= 10) {
         alert("Maximum limit of 10 destinations reached for this route.");
@@ -424,7 +461,7 @@
 
     function addDestinationInputBox(val = '') {
       const inputs = document.querySelectorAll('.stop-input');
-      if (inputs.length >= 10) return; // Prevent adding more than 10 inputs
+      if (inputs.length >= 10) return;
 
       const container = document.getElementById('inputsContainer');
       const index = container.children.length;
@@ -485,7 +522,6 @@
         toggleBtn.innerText = 'Hide';
         modeToggleContainer.style.display = 'flex';
         
-        // Update active styles on toggle buttons
         if (currentDisplayMode === 'state') {
           document.getElementById('modeStateBtn').style.background = '#007bff';
           document.getElementById('modeOrderBtn').style.background = '#6c757d';
