@@ -13,19 +13,19 @@
   <style>
     body { margin: 0; padding: 0; display: flex; height: 100vh; font-family: Arial, sans-serif; overflow: hidden; }
     
-    /* Left Sidebar: Trip History ONLY */
+    #map { flex-grow: 1; height: 100vh; position: relative; }
+    
+    /* Right Sidebar: Trip History ONLY */
     #sidebar { 
       width: 320px; 
       background: #f8f9fa; 
       padding: 20px; 
       overflow-y: auto; 
-      box-shadow: 2px 0 5px rgba(0,0,0,0.1); 
+      box-shadow: -2px 0 5px rgba(0,0,0,0.1); 
       z-index: 2; 
       height: 100vh;
       box-sizing: border-box;
     }
-    
-    #map { flex-grow: 1; height: 100vh; position: relative; }
     
     input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
     button { background: #007bff; color: white; border: none; cursor: pointer; }
@@ -51,11 +51,11 @@
     .delete-btn { background: #dc3545; color: white; }
     .delete-btn:hover { background: #c82333; }
 
-    /* Floating Panel on Top Right with expanded right padding in maxBounds */
+    /* Floating Panel on Top Left */
     #floating-control-panel {
       position: absolute;
       top: 20px;
-      right: 20px;
+      left: 20px;
       width: 360px;
       background: rgba(255, 255, 255, 0.95);
       padding: 15px;
@@ -100,11 +100,11 @@
     .suggestion-item { padding: 8px; cursor: pointer; border-bottom: 1px solid #eee; }
     .suggestion-item:hover { background: #f0f0f0; }
 
-    /* Map Legend Styles */
+    /* Map Legend Styles (Moved to Bottom Left) */
     #legend {
       position: absolute;
       bottom: 30px;
-      right: 30px;
+      left: 20px;
       background: white;
       padding: 10px;
       border-radius: 5px;
@@ -124,16 +124,10 @@
 </head>
 <body>
 
-  <!-- Left Sidebar: Trip History ONLY -->
-  <div id="sidebar">
-    <h3 style="margin-top: 0;">Trip History</h3>
-    <div id="historyList"></div>
-  </div>
-
   <div id="map">
-    <!-- Floating Control Panel on Top Right -->
+    <!-- Floating Control Panel on Top Left -->
     <div id="floating-control-panel">
-      <h3 style="margin-top: 0; margin-bottom: 15px;">Route Planning</h3>
+      <h3 style="margin-top: 0; margin-bottom: 15px;">County Travel Tracker</h3>
       
       <!-- Dynamic Destination Inputs Container -->
       <div id="inputsContainer">
@@ -172,24 +166,30 @@
         <button class="save-btn" onclick="saveTrip()" style="margin-bottom: 0;">Save Trip</button>
       </div>
     </div>
+
+    <!-- Map Legend -->
+    <div id="legend">
+      <strong>Frequency of Visits</strong>
+      <div class="legend-boxes" id="legendBoxes"></div>
+      <div class="legend-labels">
+        <span>1</span>
+        <span>2</span>
+        <span>3</span>
+        <span>4</span>
+        <span>5</span>
+        <span>6</span>
+        <span>7</span>
+        <span>8</span>
+        <span>9</span>
+        <span>10+</span>
+      </div>
+    </div>
   </div>
 
-  <!-- Map Legend -->
-  <div id="legend">
-    <strong>Frequency of Visits</strong>
-    <div class="legend-boxes" id="legendBoxes"></div>
-    <div class="legend-labels">
-      <span>1</span>
-      <span>2</span>
-      <span>3</span>
-      <span>4</span>
-      <span>5</span>
-      <span>6</span>
-      <span>7</span>
-      <span>8</span>
-      <span>9</span>
-      <span>10+</span>
-    </div>
+  <!-- Right Sidebar: Trip History ONLY -->
+  <div id="sidebar">
+    <h3 style="margin-top: 0;">Trip History</h3>
+    <div id="historyList"></div>
   </div>
 
   <script>
@@ -232,12 +232,12 @@
       zoom: 3,
       maxBounds: [
         [-180, 10],
-        [-25, 85]  // Expanded rightwards from -45 to -25 so the US East Coast isn't obstructed when fully zoomed out
+        [-25, 85]
       ]
     });
 
-    // Add navigation control (Zoom +/- buttons) to top-left of map, right next to the left sidebar
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
+    // Add navigation control (Zoom +/- buttons) to top-right of map, just left of the right sidebar
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
 
     map.on('load', () => {
       map.addSource('all-counties', { type: 'geojson', data: turf.featureCollection([]) });
@@ -734,7 +734,7 @@
         const mode = trip.displayMode || 'state';
         let formattedCountyText = "";
         if (trip.counties && trip.counties.length > 0) {
-          if (trip.counties[0].state && trip.counties[0].county) {
+          if (trip.counties[0].state && trip.counties.length > 0) {
             formattedCountyText = formatCountyList(trip.counties, mode);
           } else {
             formattedCountyText = trip.counties.map(c => c.name).join(', ');
@@ -755,7 +755,7 @@
             </div>
             <small>${trip.date} • ${trip.counties.length} counties</small>
             <div id="details-${trip.id}" class="trip-details" style="display: none;">
-              <strong>Counties Visited (${mode === 'order' ? 'Route Order' : 'By State'}):</strong><br>
+              <strong>Counties Visited (${mode === 'order' ? 'Route Order' : 'By State'}):}</strong><br>
               ${formattedCountyText}
             </div>
           </div>
